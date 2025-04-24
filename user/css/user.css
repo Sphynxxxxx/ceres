@@ -1,0 +1,153 @@
+:root {
+    --primary-color: #191970; 
+    --secondary-color: #6c757d;
+    --accent-color: #FFD700;
+    --text-light: #f8f9fa;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+}
+
+.navbar {
+    background-color: var(--primary-color);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-brand {
+    font-weight: bold;
+    color: var(--accent-color) !important;
+}
+
+.nav-link {
+    color: var(--text-light) !important;
+    font-weight: 500;
+}
+
+.nav-link:hover {
+    color: var(--accent-color) !important;
+}
+
+.hero-section {
+    background-image: url('../assets/Ceres_Bus.JPG');
+    background-size: cover;
+    background-position: center;
+    color: white;
+    padding: 60px 0;
+    margin-bottom: 30px;
+    border-radius: 0 0 10px 10px;
+}
+
+.feature-card {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    margin-bottom: 20px;
+    cursor: pointer;
+    background-color: white;
+}
+
+.feature-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+}
+
+.feature-card .card-header {
+    background-color: var(--primary-color);
+    color: var(--text-light);
+    font-weight: bold;
+    padding: 15px;
+}
+
+.feature-icon {
+    font-size: 2.5rem;
+    margin-bottom: 15px;
+    color: var(--primary-color);
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-primary:hover {
+    background-color: #121255; 
+    border-color: #121255;
+}
+
+.btn-outline-primary {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-outline-primary:hover {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.btn-warning, .btn-outline-warning {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #191970;
+}
+
+.btn-warning:hover {
+    background-color: #E6C200; 
+    border-color: #E6C200;
+    color: #191970;
+}
+
+.btn-outline-light:hover {
+    color: var(--primary-color);
+}
+
+.card-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 5px 10px;
+    background-color: var(--accent-color);
+    color: var(--primary-color);
+    font-weight: bold;
+    border-radius: 20px;
+    font-size: 0.8rem;
+}
+
+.footer {
+    background-color: var(--primary-color);
+    color: var(--text-light);
+    padding: 20px 0;
+    margin-top: 30px;
+}
+
+.quick-booking {
+    background-color: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+.announcement {
+    background-color: rgba(255, 215, 0, 0.2);
+    border-left: 4px solid var(--accent-color);
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+}
+
+#schedule-table {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.table-primary {
+    background-color: #000000 !important;
+    color: var(--text-light);
+}
+
+a.text-white:hover {
+    color: var(--accent-color) !important;
+    text-decoration: none;
+}
