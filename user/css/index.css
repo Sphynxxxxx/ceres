@@ -1,0 +1,59 @@
+:root {
+    --primary: #ffb100;
+    --dark: #1d3557;
+    --light: #f8f9fa;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #333;
+    background-color: #f8f9fa;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Navbar Styling */
+.navbar {
+    background-color: var(--dark);
+    padding: 1rem 0;
+}
+
+.navbar-brand {
+    font-weight: 700;
+    font-size: 1.4rem;
+    color: var(--primary) !important;
+}
+
+
+.btn-warning {
+    background-color: var(--primary);
+    border-color: var(--primary);
+    color: var(--dark);
+    font-weight: 600;
+    padding: 0.7rem 1.5rem;
+}
+
+.btn-warning:hover {
+    background-color: #ffa000;
+    border-color: #ffa000;
+}
+
+.btn-outline-light:hover {
+    background-color: var(--primary);
+    color: var(--dark);
+    border-color: var(--primary);
+}
+
+/* Footer */
+footer {
+    background-color: var(--dark);
+    color: white;
+    padding: 1rem 0;
+    text-align: center;
+}
+
+.auth-buttons .btn {
+    min-width: 120px;
+    margin: 0 0.5rem;
+}
