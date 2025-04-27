@@ -123,13 +123,13 @@ try {
                         <a class="nav-link" href="tabs/routes.php">Routes</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="schedule.php">Schedule</a>
+                        <a class="nav-link" href="tabs/schedule.php">Schedule</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="booking.php">Book Ticket</a>
+                        <a class="nav-link" href="tabs/booking.php">Book Ticket</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="contact.php">Contact</a>
+                        <a class="nav-link" href="tabs/contact.php">Contact</a>
                     </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -138,7 +138,7 @@ try {
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                             <li><a class="dropdown-item active" href="dashboard.php"><i class="fas fa-tachometer-alt me-2"></i>Dashboard</a></li>
                             <li><a class="dropdown-item" href="profile.php"><i class="fas fa-user me-2"></i>My Profile</a></li>
-                            <li><a class="dropdown-item" href="my_bookings.php"><i class="fas fa-ticket-alt me-2"></i>My Bookings</a></li>
+                            <li><a class="dropdown-item" href="tabs/booking.php"><i class="fas fa-ticket-alt me-2"></i>My Bookings</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
                         </ul>
@@ -164,7 +164,7 @@ try {
                             <a href="profile.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-user me-2"></i>My Profile
                             </a>
-                            <a href="my_bookings.php" class="list-group-item list-group-item-action">
+                            <a href="tabs/booking.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-ticket-alt me-2"></i>My Bookings
                             </a>
                             <a href="book_ticket.php" class="list-group-item list-group-item-action">
@@ -253,7 +253,7 @@ try {
                                         </div>
                                         <h5>Book Your Ticket</h5>
                                         <p>Reserve your seat in advance with easy booking system.</p>
-                                        <a href="booking.php" class="btn btn-warning">Book Now</a>
+                                        <a href="tabs/booking.php" class="btn btn-warning">Book Now</a>
                                     </div>
                                 </div>
                             </div>
@@ -358,7 +358,7 @@ try {
                     <ul class="list-unstyled">
                         <li><a href="tabs/routes.php" class="text-white">Routes</a></li>
                         <li><a href="schedule.php" class="text-white">Schedule</a></li>
-                        <li><a href="booking.php" class="text-white">Book Ticket</a></li>
+                        <li><a href="tabs/booking.php" class="text-white">Book Ticket</a></li>
                         <li><a href="contact.php" class="text-white">Contact Us</a></li>
                     </ul>
                 </div>

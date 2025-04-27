@@ -137,7 +137,7 @@ try {
             </div>
             <ul class="nav flex-column">
                 <li class="nav-item">
-                    <a class="nav-link" href="../admin.php">
+                    <a class="nav-link" href="../../admin.php">
                         <i class="fas fa-tachometer-alt"></i>
                         <span>Dashboard</span>
                     </a>
@@ -218,9 +218,6 @@ try {
                         </form>
                         <ul class="navbar-nav ms-3">
                             <li class="nav-item dropdown profile-section">
-                                <a class="nav-link dropdown-toggle" href="#" id="profileDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <img src="https://via.placeholder.com/40" alt="Admin">
-                                </a>
                                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
                                     <li><h6 class="dropdown-header">Admin User</h6></li>
                                     <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>

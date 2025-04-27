@@ -4,7 +4,7 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 
 // Database connection
-require_once "../backend/connections/config.php";
+require_once "backend/connections/config.php";
 
 $admin_id = -1;
 $admin_name = "Administartor";
@@ -126,7 +126,7 @@ $notification_count = count($notifications);
     <title>Ceres Bus for ISAT-U Commuters - Admin Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
-    <link rel="stylesheet" href="css/admin.css">
+    <link rel="stylesheet" href="admin/css/admin.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -139,55 +139,55 @@ $notification_count = count($notifications);
             </div>
             <ul class="nav flex-column">
                 <li class="nav-item">
-                    <a class="nav-link active" href="dashboard_admin.php" data-bs-toggle="tab">
+                    <a class="nav-link active" href="admin.php">
                         <i class="fas fa-tachometer-alt"></i>
                         <span>Dashboard</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="booking_admin.php" data-bs-toggle="tab">
+                    <a class="nav-link" href="admin/tabs/booking_admin.php">
                         <i class="fas fa-ticket-alt"></i>
                         <span>Bookings</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="routes_admin.php" data-bs-toggle="tab">
+                    <a class="nav-link" href="admin/tabs/routes_admin.php">
                         <i class="fas fa-route"></i>
                         <span>Routes</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="schedule_admin.php" data-bs-toggle="tab">
+                    <a class="nav-link" href="admin/tabs/schedule_admin.php">
                         <i class="fas fa-calendar-alt"></i>
                         <span>Schedules</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="buses_admin.php" data-bs-toggle="tab">
+                    <a class="nav-link" href="admin/tabs/buses_admin.php">
                         <i class="fas fa-bus"></i>
                         <span>Buses</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="tabs/users_admin.php">
+                    <a class="nav-link" href="admin/tabs/users_admin.php">
                         <i class="fas fa-users me-2"></i>
                         <span>Users</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="reports_admin.php" data-bs-toggle="tab">
+                    <a class="nav-link" href="admin/tabs/reports_admin.php">
                         <i class="fas fa-chart-bar"></i>
                         <span>Reports</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="announcements_admin.php" data-bs-toggle="tab">
+                    <a class="nav-link" href="admin/tabs/announcements_admin.php">
                         <i class="fas fa-bullhorn"></i>
                         <span>Announcements</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="#settings-section" data-bs-toggle="tab">
+                    <a class="nav-link" href="admin/tabs/settings-section">
                         <i class="fas fa-cog"></i>
                         <span>Settings</span>
                     </a>
@@ -234,9 +234,6 @@ $notification_count = count($notifications);
                                 </ul>
                             </li>
                             <li class="nav-item dropdown profile-section">
-                                <a class="nav-link dropdown-toggle" href="#" id="profileDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <img src="https://via.placeholder.com/40" alt="Admin">
-                                </a>
                                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
                                     <li><h6 class="dropdown-header">Admin User</h6></li>
                                     <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
