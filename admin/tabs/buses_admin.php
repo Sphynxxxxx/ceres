@@ -190,22 +190,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($status != 'Active' && $status != 'Under Maintenance') {
         $status = 'Active'; // Default to Active if invalid
     }
+    if ($origin === $destination) {
+        $errors[] = "Origin and destination cannot be the same";
+    }
     
     if (empty($errors) && $bus_id > 0) {
-        // Get current bus status to check if status is changing
-        $get_status_query = "SELECT status FROM buses WHERE id = ?";
-        $status_stmt = $conn->prepare($get_status_query);
-        $status_stmt->bind_param("i", $bus_id);
-        $status_stmt->execute();
-        $status_result = $status_stmt->get_result();
-        $current_status = 'Active'; // Default
+        // First verify the origin/destination combination is valid
+        $check_route = "SELECT id FROM buses WHERE id = ? AND origin = ? AND destination = ?";
+        $check_stmt = $conn->prepare($check_route);
+        $check_stmt->bind_param("iss", $bus_id, $origin, $destination);
+        $check_stmt->execute();
+        $check_result = $check_stmt->get_result();
         
-        if ($status_result && $status_result->num_rows > 0) {
-            $status_row = $status_result->fetch_assoc();
-            $current_status = $status_row['status'];
+        if ($check_result->num_rows === 0) {
+            // Route has changed, need to update schedules
+            $update_schedules = true;
         }
         
-        $status_stmt->close();
         
         // Update bus in database
         $update_query = "UPDATE buses SET 
@@ -482,55 +483,103 @@ if ($count_result && $count_result->num_rows > 0) {
         }
 
         .seat {
-            width: 45px;
-            height: 45px;
-            background-color: green;
-            margin: 5px;
-            text-align: center;
-            line-height: 45px;
-            border-radius: 8px;
-            font-size: 14px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            font-weight: bold;
             color: white;
-            cursor: pointer;
+            transition: all 0.3s;
+            margin: 5px;
+            position: relative;
+            border: 2px solid transparent;
         }
-    
+        
+        .seat-map-container {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.1);
+        }
+        
         .seat.available {
             background-color: #28a745;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            cursor: default;
         }
         
         .seat.booked {
             background-color: #dc3545;
+            opacity: 0.8;
+            cursor: default;
         }
         
         .seat-row {
             display: flex;
             justify-content: center;
+            margin-bottom: 12px;
+            gap: 10px;
             align-items: center;
-            margin-bottom: 10px;
         }
         
         .aisle {
-            width: 50px;
+            width: 20px;
+            height: 40px;
         }
         
-        .seat, .empty-seat {
-            width: 40px;
-            height: 40px;
-            background-color: green;
-            margin: 5px;
-            text-align: center;
-            line-height: 40px;
-            border-radius: 5px;
-            font-size: 14px;
-            color: white;
-        }
         .driver-area {
-            max-width: 100px;
-            margin: 0 auto;
+            max-width: 180px;
+            margin: 0 auto 20px;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 8px;
+            border: 1px dashed #adb5bd;
+            font-weight: bold;
         }
-
-        .back-row {
+        
+        .seat-legend {
+            display: flex;
             justify-content: center;
+            gap: 20px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-weight: 500;
+        }
+        
+        .front-back-indicator {
+            background-color: #6c757d;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            margin: 10px 0;
+            display: inline-block;
+            font-weight: 500;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .seat-row-label {
+            width: 25px;
+            height: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #e9ecef;
+            border-radius: 50%;
+            font-weight: bold;
+            color: #495057;
         }
         
         .status-indicator {
@@ -1100,29 +1149,81 @@ if ($count_result && $count_result->num_rows > 0) {
                     <div class="card mb-3">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h6 class="mb-0"><i class="fas fa-chair me-2"></i>Seat Map</h6>
-                            <div>
-                                <span class="badge bg-success me-2">Available</span>
-                                <span class="badge bg-danger">Booked</span>
+                            <div class="d-flex align-items-center">
+                                <input type="date" id="seatMapDatePicker" class="form-control form-control-sm me-2" style="width: 150px;">
+                                <div class="seat-legend">
+                                    <div class="legend-item">
+                                        <div class="seat available" style="width: 25px; height: 25px;"></div>
+                                        <span>Available</span>
+                                    </div>
+                                    <div class="legend-item">
+                                        <div class="seat booked" style="width: 25px; height: 25px;"></div>
+                                        <span>Booked</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="card-body">
                             <div class="text-center mb-3">
-                                <div class="driver-area mb-4">
-                                    <div class="driver-icon p-2 bg-secondary text-white rounded-circle d-inline-block">
-                                        <i class="fas fa-steering-wheel" title="Driver"></i>
+                                <div class="driver-area">
+                                    <i class="fas fa-steering-wheel me-1"></i> Driver Area
+                                </div>
+                                <div class="front-back-indicator">
+                                    <i class="fas fa-arrow-up me-1"></i> Front of Bus
+                                </div>
+                            </div>
+                            
+                            <div class="seat-map-container">
+                                <div id="seatMapContainer" class="d-flex flex-column align-items-center justify-content-center">
+                                    <!-- Seat map will be dynamically loaded here -->
+                                    <div class="spinner-border text-primary mb-3" role="status">
+                                        <span class="visually-hidden">Loading seats...</span>
                                     </div>
-                                    <div class="text-muted small">Driver's Area</div>
+                                    <p>Loading seat map for next available date...</p>
                                 </div>
                             </div>
-                            <div id="seatMapContainer" class="d-flex flex-wrap justify-content-center gap-2 mb-3">
-                                <!-- Seat map will be dynamically loaded here -->
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Loading seats...</span>
+                            
+                            <div class="text-center mb-2">
+                                <div class="front-back-indicator">
+                                    <i class="fas fa-arrow-down me-1"></i> Back of Bus
                                 </div>
                             </div>
-                            <div class="text-center mt-2">
-                                <div class="small text-muted">
-                                    <span id="bookedSeatCount">0</span> seats booked out of <span id="totalSeatCount">0</span>
+                            
+                            <div class="seat-status-card p-3">
+                                <div class="row align-items-center text-center">
+                                    <div class="col-md-4">
+                                        <div class="d-flex align-items-center justify-content-center">
+                                            <div class="seat-counter bg-success text-white rounded-circle p-2 me-2" style="width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                                <span id="availableSeatCount">0</span>
+                                            </div>
+                                            <div>
+                                                <span class="d-block fw-bold">Available Seats</span>
+                                                <small class="text-muted" id="availableSeatDate"></small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="d-flex align-items-center justify-content-center">
+                                            <div class="seat-counter bg-danger text-white rounded-circle p-2 me-2" style="width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                                <span id="bookedSeatCount">0</span>
+                                            </div>
+                                            <div>
+                                                <span class="d-block fw-bold">Booked Seats</span>
+                                                <small class="text-muted" id="bookedSeatDate"></small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="d-flex align-items-center justify-content-center">
+                                            <div class="seat-counter bg-primary text-white rounded-circle p-2 me-2" style="width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                                <span id="totalSeatCount">0</span>
+                                            </div>
+                                            <div>
+                                                <span class="d-block fw-bold">Total Seats</span>
+                                                <small class="text-muted">Bus Capacity</small>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1162,6 +1263,7 @@ if ($count_result && $count_result->num_rows > 0) {
             </div>
         </div>
     </div>
+
 
     <!-- Edit Bus Modal -->
     <div class="modal fade" id="editBusModal" tabindex="-1" aria-labelledby="editBusModalLabel" aria-hidden="true">
@@ -1229,7 +1331,7 @@ if ($count_result && $count_result->num_rows > 0) {
                                     <option value="Escalante City">Escalante City</option>
                                     <option value="Sagay City">Sagay City</option>
                                 </select>
-                                </div>
+                            </div>
                         </div>
                         <div class="row mb-3">
                             <div class="col-md-6">
@@ -1259,205 +1361,65 @@ if ($count_result && $count_result->num_rows > 0) {
         </div>
     </div>
 
-    <!-- JavaScript Bundle with Popper -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // Store buses data globally for easier access
-    const busesData = <?php echo json_encode($buses); ?>;
+        // Store buses data globally for easier access
+        const busesData = <?php echo json_encode($buses); ?>;
 
-    // Toggle sidebar
-    document.getElementById('sidebarToggle').addEventListener('click', function() {
-        document.body.classList.toggle('collapsed-sidebar');
-    });
-
-    // Enable tooltips
-    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
-
-    // Find bus by ID
-    function findBusById(busId) {
-        return busesData.find(bus => bus.id == busId) || {
-            id: busId,
-            bus_type: 'Regular',
-            seat_capacity: 45,
-            plate_number: 'ABC-1234',
-            status: 'Active',
-            origin: 'Iloilo City',
-            destination: 'Bacolod City',
-            driver_name: 'John Doe',
-            conductor_name: 'Jane Smith',
-            created_at: '<?php echo date('M d, Y'); ?>',
-            active_bookings: 0,
-            schedule_count: 0
-        };
-    }
-
-    // Toggle bus status functionality
-    document.querySelectorAll('.toggle-status').forEach(function(button) {
-        button.addEventListener('click', function(e) {
-            e.preventDefault();
-            const busId = this.getAttribute('data-id');
-            const currentStatus = this.getAttribute('data-current-status');
-            const newStatus = currentStatus === 'Active' ? 'Under Maintenance' : 'Active';
-            
-            let message = 'Are you sure you want to change the bus status from ' + currentStatus + ' to ' + newStatus + '?';
-            
-            if (currentStatus === 'Active') {
-                message += '\n\nWARNING: This will disable travel date selection for this bus. Existing bookings will not be affected, but no new bookings can be made until the bus is active again.';
-            } else {
-                message += '\n\nThis will enable travel date selection for this bus, allowing travelers to book tickets.';
-            }
-            
-            if (confirm(message)) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = 'buses_admin.php';
-                
-                const actionInput = document.createElement('input');
-                actionInput.type = 'hidden';
-                actionInput.name = 'action';
-                actionInput.value = 'toggle_status';
-                form.appendChild(actionInput);
-                
-                const busIdInput = document.createElement('input');
-                busIdInput.type = 'hidden';
-                busIdInput.name = 'bus_id';
-                busIdInput.value = busId;
-                form.appendChild(busIdInput);
-                
-                const currentStatusInput = document.createElement('input');
-                currentStatusInput.type = 'hidden';
-                currentStatusInput.name = 'current_status';
-                currentStatusInput.value = currentStatus;
-                form.appendChild(currentStatusInput);
-                
-                document.body.appendChild(form);
-                form.submit();
-            }
+        // Toggle sidebar
+        document.getElementById('sidebarToggle').addEventListener('click', function() {
+            document.body.classList.toggle('collapsed-sidebar');
         });
-    });
 
-    // Delete bus functionality
-    document.querySelectorAll('.delete-bus').forEach(function(button) {
-        button.addEventListener('click', function() {
-            const busId = this.getAttribute('data-id');
-            
-            if (confirm('Are you sure you want to delete bus #' + busId + '? This action cannot be undone. Any active bookings for this bus will need to be resolved separately.')) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = 'buses_admin.php';
-                
-                const actionInput = document.createElement('input');
-                actionInput.type = 'hidden';
-                actionInput.name = 'action';
-                actionInput.value = 'delete_bus';
-                form.appendChild(actionInput);
-                
-                const busIdInput = document.createElement('input');
-                busIdInput.type = 'hidden';
-                busIdInput.name = 'bus_id';
-                busIdInput.value = busId;
-                form.appendChild(busIdInput);
-                
-                document.body.appendChild(form);
-                form.submit();
-            }
+        // Enable tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
         });
-    });
 
-    // View bus details functionality
-    document.querySelectorAll('.view-bus').forEach(function(button) {
-        button.addEventListener('click', function() {
-            const busId = this.getAttribute('data-id');
-            const bus = findBusById(busId);
-            
-            // Reset loading states
-            document.getElementById('busBasicInfo').innerHTML = `
-                <dl class="row mb-0">
-                    <dt class="col-sm-4">Bus ID:</dt>
-                    <dd class="col-sm-8">#${bus.id}</dd>
-                    
-                    <dt class="col-sm-4">Bus Type:</dt>
-                    <dd class="col-sm-8">
-                        ${bus.bus_type === 'Aircondition' ? 
-                        '<span class="badge bg-info text-dark"><i class="fas fa-snowflake me-1"></i> Aircon</span>' : 
-                        '<span class="badge bg-secondary"><i class="fas fa-bus me-1"></i> Regular</span>'}
-                    </dd>
-                    
-                    <dt class="col-sm-4">Plate Number:</dt>
-                    <dd class="col-sm-8">${bus.plate_number}</dd>
-                    
-                    <dt class="col-sm-4">Seat Capacity:</dt>
-                    <dd class="col-sm-8">${bus.seat_capacity} seats</dd>
-                    
-                    <dt class="col-sm-4">Status:</dt>
-                    <dd class="col-sm-8">
-                        ${bus.status === 'Active' ? 
-                        '<span class="badge bg-success"><i class="fas fa-check-circle me-1"></i> Active</span>' : 
-                        '<span class="badge bg-warning text-dark"><i class="fas fa-tools me-1"></i> Under Maintenance</span>'}
-                    </dd>
-                </dl>
-            `;
-            
-            document.getElementById('busRouteStaffInfo').innerHTML = `
-                <dl class="row mb-0">
-                    <dt class="col-sm-4">Route:</dt>
-                    <dd class="col-sm-8">
-                        <span class="badge bg-light text-dark">
-                            ${bus.origin} 
-                            <i class="fas fa-arrow-right mx-1"></i> 
-                            ${bus.destination}
-                        </span>
-                    </dd>
-                    
-                    <dt class="col-sm-4">Driver:</dt>
-                    <dd class="col-sm-8">${bus.driver_name}</dd>
-                    
-                    <dt class="col-sm-4">Conductor:</dt>
-                    <dd class="col-sm-8">${bus.conductor_name}</dd>
-                    
-                    <dt class="col-sm-4">Registered On:</dt>
-                    <dd class="col-sm-8">${bus.created_at}</dd>
-                    
-                    <dt class="col-sm-4">Bookings:</dt>
-                    <dd class="col-sm-8">
-                        <span class="badge bg-primary">
-                            <i class="fas fa-ticket-alt me-1"></i> ${bus.active_bookings}
-                        </span>
-                        active bookings
-                    </dd>
-                </dl>
-            `;
+        // Find bus by ID
+        function findBusById(busId) {
+            return busesData.find(bus => bus.id == busId) || {
+                id: busId,
+                bus_type: 'Regular',
+                seat_capacity: 45,
+                plate_number: 'ABC-1234',
+                status: 'Active',
+                origin: 'Iloilo City',
+                destination: 'Bacolod City',
+                driver_name: 'John Doe',
+                conductor_name: 'Jane Smith',
+                created_at: '<?php echo date('M d, Y'); ?>',
+                active_bookings: 0,
+                schedule_count: 0
+            };
+        }
 
-            // Toggle Status Button
-            const toggleBtn = document.getElementById('toggleStatusBtn');
-            if (bus.status === 'Active') {
-                toggleBtn.className = 'btn btn-warning';
-                toggleBtn.innerHTML = '<i class="fas fa-tools me-1"></i> Set to Maintenance';
-                
-                document.getElementById('travel-date-message').innerHTML = 
-                    'This bus is <span class="badge bg-success">Active</span> and ' +
-                    'travelers can select travel dates for booking. The bus has ' +
-                    `<strong>${bus.schedule_count}</strong> schedule(s) and ` +
-                    `<strong>${bus.active_bookings}</strong> active booking(s).`;
-            } else {
-                toggleBtn.className = 'btn btn-success';
-                toggleBtn.innerHTML = '<i class="fas fa-check-circle me-1"></i> Set to Active';
-                
-                document.getElementById('travel-date-message').innerHTML = 
-                    'This bus is <span class="badge bg-warning text-dark">Under Maintenance</span> ' +
-                    'and travelers cannot select travel dates for booking. ' +
-                    'To enable bookings, change the status to Active.';
-            }
+        // Function to get the next available date (tomorrow by default)
+        function getNextAvailableDate() {
+            const today = new Date();
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            return tomorrow.toISOString().split('T')[0];
+        }
 
-            // Toggle status button click handler
-            toggleBtn.onclick = function() {
-                const newStatus = bus.status === 'Active' ? 'Under Maintenance' : 'Active';
-                let message = `Are you sure you want to change the bus status from ${bus.status} to ${newStatus}?`;
+        // Helper function to format date
+        function formatDate(dateString) {
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            return new Date(dateString).toLocaleDateString(undefined, options);
+        }
+
+        // Toggle bus status functionality
+        document.querySelectorAll('.toggle-status').forEach(function(button) {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                const busId = this.getAttribute('data-id');
+                const currentStatus = this.getAttribute('data-current-status');
+                const newStatus = currentStatus === 'Active' ? 'Under Maintenance' : 'Active';
                 
-                if (bus.status === 'Active') {
+                let message = 'Are you sure you want to change the bus status from ' + currentStatus + ' to ' + newStatus + '?';
+                
+                if (currentStatus === 'Active') {
                     message += '\n\nWARNING: This will disable travel date selection for this bus. Existing bookings will not be affected, but no new bookings can be made until the bus is active again.';
                 } else {
                     message += '\n\nThis will enable travel date selection for this bus, allowing travelers to book tickets.';
@@ -1477,31 +1439,230 @@ if ($count_result && $count_result->num_rows > 0) {
                     const busIdInput = document.createElement('input');
                     busIdInput.type = 'hidden';
                     busIdInput.name = 'bus_id';
-                    busIdInput.value = bus.id;
+                    busIdInput.value = busId;
                     form.appendChild(busIdInput);
                     
                     const currentStatusInput = document.createElement('input');
                     currentStatusInput.type = 'hidden';
                     currentStatusInput.name = 'current_status';
-                    currentStatusInput.value = bus.status;
+                    currentStatusInput.value = currentStatus;
                     form.appendChild(currentStatusInput);
                     
                     document.body.appendChild(form);
                     form.submit();
                 }
-            };
+            });
+        });
 
-            // Update View Schedules button
-            document.getElementById('viewSchedulesBtn').href = `schedules_admin.php?bus_id=${bus.id}`;
+        // Delete bus functionality
+        document.querySelectorAll('.delete-bus').forEach(function(button) {
+            button.addEventListener('click', function() {
+                const busId = this.getAttribute('data-id');
+                
+                if (confirm('Are you sure you want to delete bus #' + busId + '? This action cannot be undone. Any active bookings for this bus will need to be resolved separately.')) {
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = 'buses_admin.php';
+                    
+                    const actionInput = document.createElement('input');
+                    actionInput.type = 'hidden';
+                    actionInput.name = 'action';
+                    actionInput.value = 'delete_bus';
+                    form.appendChild(actionInput);
+                    
+                    const busIdInput = document.createElement('input');
+                    busIdInput.type = 'hidden';
+                    busIdInput.name = 'bus_id';
+                    busIdInput.value = busId;
+                    form.appendChild(busIdInput);
+                    
+                    document.body.appendChild(form);
+                    form.submit();
+                }
+            });
+        });
 
-            // Generate seat map
-            generateSeatMap(bus.id, parseInt(bus.seat_capacity));
+        // View bus details functionality
+        document.querySelectorAll('.view-bus').forEach(function(button) {
+            button.addEventListener('click', function() {
+                const busId = this.getAttribute('data-id');
+                const bus = findBusById(busId);
+                
+                // Reset loading states
+                document.getElementById('busBasicInfo').innerHTML = `
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Bus ID:</dt>
+                        <dd class="col-sm-8">#${bus.id}</dd>
+                        
+                        <dt class="col-sm-4">Bus Type:</dt>
+                        <dd class="col-sm-8">
+                            ${bus.bus_type === 'Aircondition' ? 
+                            '<span class="badge bg-info text-dark"><i class="fas fa-snowflake me-1"></i> Aircon</span>' : 
+                            '<span class="badge bg-secondary"><i class="fas fa-bus me-1"></i> Regular</span>'}
+                        </dd>
+                        
+                        <dt class="col-sm-4">Plate Number:</dt>
+                        <dd class="col-sm-8">${bus.plate_number}</dd>
+                        
+                        <dt class="col-sm-4">Seat Capacity:</dt>
+                        <dd class="col-sm-8">${bus.seat_capacity} seats</dd>
+                        
+                        <dt class="col-sm-4">Status:</dt>
+                        <dd class="col-sm-8">
+                            ${bus.status === 'Active' ? 
+                            '<span class="badge bg-success"><i class="fas fa-check-circle me-1"></i> Active</span>' : 
+                            '<span class="badge bg-warning text-dark"><i class="fas fa-tools me-1"></i> Under Maintenance</span>'}
+                        </dd>
+                    </dl>
+                `;
+                
+                document.getElementById('busRouteStaffInfo').innerHTML = `
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Route:</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge bg-light text-dark">
+                                ${bus.origin} 
+                                <i class="fas fa-arrow-right mx-1"></i> 
+                                ${bus.destination}
+                            </span>
+                        </dd>
+                        
+                        <dt class="col-sm-4">Driver:</dt>
+                        <dd class="col-sm-8">${bus.driver_name}</dd>
+                        
+                        <dt class="col-sm-4">Conductor:</dt>
+                        <dd class="col-sm-8">${bus.conductor_name}</dd>
+                        
+                        <dt class="col-sm-4">Registered On:</dt>
+                        <dd class="col-sm-8">${bus.created_at}</dd>
+                        
+                        <dt class="col-sm-4">Bookings:</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge bg-primary">
+                                <i class="fas fa-ticket-alt me-1"></i> ${bus.active_bookings}
+                            </span>
+                            active bookings
+                        </dd>
+                    </dl>
+                `;
 
-            // Edit Bus Button
-            document.getElementById('editBusBtn').onclick = function() {
-                // Hide view modal
-                var viewBusModal = bootstrap.Modal.getInstance(document.getElementById('viewBusModal'));
-                viewBusModal.hide();
+                // Toggle Status Button
+                const toggleBtn = document.getElementById('toggleStatusBtn');
+                if (bus.status === 'Active') {
+                    toggleBtn.className = 'btn btn-warning';
+                    toggleBtn.innerHTML = '<i class="fas fa-tools me-1"></i> Set to Maintenance';
+                    
+                    document.getElementById('travel-date-message').innerHTML = 
+                        'This bus is <span class="badge bg-success">Active</span> and ' +
+                        'travelers can select travel dates for booking. The bus has ' +
+                        `<strong>${bus.schedule_count}</strong> schedule(s) and ` +
+                        `<strong>${bus.active_bookings}</strong> active booking(s).`;
+                } else {
+                    toggleBtn.className = 'btn btn-success';
+                    toggleBtn.innerHTML = '<i class="fas fa-check-circle me-1"></i> Set to Active';
+                    
+                    document.getElementById('travel-date-message').innerHTML = 
+                        'This bus is <span class="badge bg-warning text-dark">Under Maintenance</span> ' +
+                        'and travelers cannot select travel dates for booking. ' +
+                        'To enable bookings, change the status to Active.';
+                }
+
+                // Toggle status button click handler
+                toggleBtn.onclick = function() {
+                    const newStatus = bus.status === 'Active' ? 'Under Maintenance' : 'Active';
+                    let message = `Are you sure you want to change the bus status from ${bus.status} to ${newStatus}?`;
+                    
+                    if (bus.status === 'Active') {
+                        message += '\n\nWARNING: This will disable travel date selection for this bus. Existing bookings will not be affected, but no new bookings can be made until the bus is active again.';
+                    } else {
+                        message += '\n\nThis will enable travel date selection for this bus, allowing travelers to book tickets.';
+                    }
+                    
+                    if (confirm(message)) {
+                        const form = document.createElement('form');
+                        form.method = 'POST';
+                        form.action = 'buses_admin.php';
+                        
+                        const actionInput = document.createElement('input');
+                        actionInput.type = 'hidden';
+                        actionInput.name = 'action';
+                        actionInput.value = 'toggle_status';
+                        form.appendChild(actionInput);
+                        
+                        const busIdInput = document.createElement('input');
+                        busIdInput.type = 'hidden';
+                        busIdInput.name = 'bus_id';
+                        busIdInput.value = bus.id;
+                        form.appendChild(busIdInput);
+                        
+                        const currentStatusInput = document.createElement('input');
+                        currentStatusInput.type = 'hidden';
+                        currentStatusInput.name = 'current_status';
+                        currentStatusInput.value = bus.status;
+                        form.appendChild(currentStatusInput);
+                        
+                        document.body.appendChild(form);
+                        form.submit();
+                    }
+                };
+
+                // Update View Schedules button
+                document.getElementById('viewSchedulesBtn').href = `schedules_admin.php?bus_id=${bus.id}`;
+
+                // Initialize date picker with tomorrow's date
+                const datePicker = document.getElementById('seatMapDatePicker');
+                const nextAvailableDate = getNextAvailableDate();
+                datePicker.value = nextAvailableDate;
+                datePicker.min = new Date().toISOString().split('T')[0];
+                
+                // Generate seat map for the next available date
+                generateSeatMap(bus.id, parseInt(bus.seat_capacity), nextAvailableDate);
+                
+                // Update date display in counters
+                document.getElementById('availableSeatDate').textContent = formatDate(nextAvailableDate);
+                document.getElementById('bookedSeatDate').textContent = formatDate(nextAvailableDate);
+                
+                // Add event listener for date changes
+                datePicker.addEventListener('change', function() {
+                    const selectedDate = this.value;
+                    generateSeatMap(bus.id, parseInt(bus.seat_capacity), selectedDate);
+                    document.getElementById('availableSeatDate').textContent = formatDate(selectedDate);
+                    document.getElementById('bookedSeatDate').textContent = formatDate(selectedDate);
+                });
+
+                // Edit Bus Button
+                document.getElementById('editBusBtn').onclick = function() {
+                    // Hide view modal
+                    var viewBusModal = bootstrap.Modal.getInstance(document.getElementById('viewBusModal'));
+                    viewBusModal.hide();
+                    
+                    // Populate edit modal
+                    document.getElementById('editBusId').value = bus.id;
+                    document.getElementById('editBusType').value = bus.bus_type;
+                    document.getElementById('editSeatCapacity').value = bus.seat_capacity;
+                    document.getElementById('editPlateNumber').value = bus.plate_number;
+                    document.getElementById('editBusStatus').value = bus.status;
+                    document.getElementById('editOrigin').value = bus.origin;
+                    document.getElementById('editDestination').value = bus.destination;
+                    document.getElementById('editDriverName').value = bus.driver_name;
+                    document.getElementById('editConductorName').value = bus.conductor_name;
+                    
+                    // Show edit modal
+                    var editBusModal = new bootstrap.Modal(document.getElementById('editBusModal'));
+                    editBusModal.show();
+                };
+
+                // Show the modal
+                var viewBusModal = new bootstrap.Modal(document.getElementById('viewBusModal'));
+                viewBusModal.show();
+            });
+        });
+
+        // Edit bus directly
+        document.querySelectorAll('.edit-bus').forEach(function(button) {
+            button.addEventListener('click', function() {
+                const busId = this.getAttribute('data-id');
+                const bus = findBusById(busId);
                 
                 // Populate edit modal
                 document.getElementById('editBusId').value = bus.id;
@@ -1509,200 +1670,212 @@ if ($count_result && $count_result->num_rows > 0) {
                 document.getElementById('editSeatCapacity').value = bus.seat_capacity;
                 document.getElementById('editPlateNumber').value = bus.plate_number;
                 document.getElementById('editBusStatus').value = bus.status;
-                document.getElementById('editOrigin').value = bus.origin;
-                document.getElementById('editDestination').value = bus.destination;
+                
+                // Set origin value
+                const originSelect = document.getElementById('editOrigin');
+                originSelect.value = bus.origin;
+                
+                // Set destination value - do this BEFORE disabling options
+                const destinationSelect = document.getElementById('editDestination');
+                destinationSelect.value = bus.destination;
+                
+                // Now disable the origin option in destination
+                if (bus.origin) {
+                    for (let i = 0; i < destinationSelect.options.length; i++) {
+                        destinationSelect.options[i].disabled = (destinationSelect.options[i].value === bus.origin);
+                    }
+                }
+                
                 document.getElementById('editDriverName').value = bus.driver_name;
                 document.getElementById('editConductorName').value = bus.conductor_name;
                 
                 // Show edit modal
                 var editBusModal = new bootstrap.Modal(document.getElementById('editBusModal'));
                 editBusModal.show();
-            };
-
-            // Show the modal
-            var viewBusModal = new bootstrap.Modal(document.getElementById('viewBusModal'));
-            viewBusModal.show();
+            });
         });
-    });
 
-    // Edit bus directly
-    document.querySelectorAll('.edit-bus').forEach(function(button) {
-        button.addEventListener('click', function() {
-            const busId = this.getAttribute('data-id');
-            const bus = findBusById(busId);
+        // Functions for generating seat map
+        function generateSeatMap(busId, totalSeats, selectedDate) {
+            const seatMapContainer = document.getElementById('seatMapContainer');
+            seatMapContainer.innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>';
             
-            // Populate edit modal
-            document.getElementById('editBusId').value = bus.id;
-            document.getElementById('editBusType').value = bus.bus_type;
-            document.getElementById('editSeatCapacity').value = bus.seat_capacity;
-            document.getElementById('editPlateNumber').value = bus.plate_number;
-            document.getElementById('editBusStatus').value = bus.status;
-            document.getElementById('editOrigin').value = bus.origin;
-            document.getElementById('editDestination').value = bus.destination;
-            document.getElementById('editDriverName').value = bus.driver_name;
-            document.getElementById('editConductorName').value = bus.conductor_name;
-            
-            // Show edit modal
-            var editBusModal = new bootstrap.Modal(document.getElementById('editBusModal'));
-            editBusModal.show();
-        });
-    });
+            fetchBookedSeats(busId, selectedDate).then(bookedSeats => {
+                seatMapContainer.innerHTML = '';
+                
+                let bookedCount = 0;
+                let seatNumber = 1;
+                const seatsPerRow = 4; // 2 left + 2 right
+                const backRowSeats = 5; // last row is 5 seats straight
 
-    // Functions for generating seat map
-    function generateSeatMap(busId, totalSeats) {
-        const seatMapContainer = document.getElementById('seatMapContainer');
-        seatMapContainer.innerHTML = '';
+                const normalSeats = totalSeats - backRowSeats;
+                const rowCount = Math.floor(normalSeats / seatsPerRow);
 
-        fetchBookedSeats(busId).then(bookedSeats => {
-            let bookedCount = 0;
-            let seatNumber = 1;
-            const seatsPerRow = 4; // 2 left + 2 right
-            const backRowSeats = 5; // last row is 5 seats straight
+                // Create rows before back row
+                for (let row = 0; row < rowCount; row++) {
+                    const rowDiv = document.createElement('div');
+                    rowDiv.className = 'seat-row';
 
-            const normalSeats = totalSeats - backRowSeats;
-            const rowCount = Math.floor(normalSeats / seatsPerRow);
+                    // Left side (2 seats)
+                    for (let i = 0; i < 2; i++) {
+                        if (seatNumber <= normalSeats) {
+                            const isBooked = bookedSeats.includes(seatNumber);
+                            const seat = createSeatElement(seatNumber, isBooked);
+                            rowDiv.appendChild(seat);
+                            if (isBooked) bookedCount++;
+                            seatNumber++;
+                        }
+                    }
 
-            // Create rows before back row
-            for (let row = 0; row < rowCount; row++) {
-                const rowDiv = document.createElement('div');
-                rowDiv.className = 'seat-row';
+                    // Aisle space
+                    const aisleDiv = document.createElement('div');
+                    aisleDiv.className = 'aisle';
+                    rowDiv.appendChild(aisleDiv);
 
-                // Left side (2 seats)
-                for (let i = 0; i < 2; i++) {
-                    if (seatNumber <= normalSeats) {
+                    // Right side (2 seats)
+                    for (let i = 0; i < 2; i++) {
+                        if (seatNumber <= normalSeats) {
+                            const isBooked = bookedSeats.includes(seatNumber);
+                            const seat = createSeatElement(seatNumber, isBooked);
+                            rowDiv.appendChild(seat);
+                            if (isBooked) bookedCount++;
+                            seatNumber++;
+                        }
+                    }
+
+                    seatMapContainer.appendChild(rowDiv);
+                }
+
+                // Back row
+                const backRowDiv = document.createElement('div');
+                backRowDiv.className = 'seat-row back-row';
+                for (let i = 0; i < backRowSeats; i++) {
+                    if (seatNumber <= totalSeats) {
                         const isBooked = bookedSeats.includes(seatNumber);
                         const seat = createSeatElement(seatNumber, isBooked);
-                        rowDiv.appendChild(seat);
+                        backRowDiv.appendChild(seat);
                         if (isBooked) bookedCount++;
                         seatNumber++;
                     }
                 }
+                seatMapContainer.appendChild(backRowDiv);
 
-                // Aisle space
-                const aisleDiv = document.createElement('div');
-                aisleDiv.className = 'aisle';
-                rowDiv.appendChild(aisleDiv);
+                // Update counters
+                document.getElementById('bookedSeatCount').textContent = bookedCount;
+                document.getElementById('totalSeatCount').textContent = totalSeats;
+                document.getElementById('availableSeatCount').textContent = totalSeats - bookedCount;
+                
+                // Add date information
+                const dateInfo = document.createElement('div');
+                dateInfo.className = 'text-center mt-3';
+                dateInfo.innerHTML = `
+                    <p class="mb-0">
+                        <strong>Seat availability for ${formatDate(selectedDate)}</strong>
+                    </p>
+                    <p class="small text-muted mb-0">
+                        ${bookedCount} seats booked, ${totalSeats - bookedCount} seats available
+                    </p>
+                `;
+                seatMapContainer.appendChild(dateInfo);
+            });
+        }
 
-                // Right side (2 seats)
-                for (let i = 0; i < 2; i++) {
-                    if (seatNumber <= normalSeats) {
-                        const isBooked = bookedSeats.includes(seatNumber);
-                        const seat = createSeatElement(seatNumber, isBooked);
-                        rowDiv.appendChild(seat);
-                        if (isBooked) bookedCount++;
-                        seatNumber++;
-                    }
-                }
+        function createSeatElement(seatNumber, isBooked) {
+            const seat = document.createElement('div');
+            seat.className = `seat ${isBooked ? 'booked' : 'available'}`;
+            seat.dataset.seatNumber = seatNumber;
+            seat.textContent = seatNumber;
+            
+            // Add tooltip
+            seat.title = `Seat ${seatNumber}: ${isBooked ? 'Booked' : 'Available'}`;
+            
+            return seat;
+        }
 
-                seatMapContainer.appendChild(rowDiv);
+        // Function to fetch booked seats from the database
+        function fetchBookedSeats(busId, date = null) {
+            let url = `../../backend/connections/get_booked_seats.php?bus_id=${busId}`;
+            if (date) {
+                url += `&date=${date}`;
             }
-
-            // Back row
-            const backRowDiv = document.createElement('div');
-            backRowDiv.className = 'seat-row back-row';
-            for (let i = 0; i < backRowSeats; i++) {
-                if (seatNumber <= totalSeats) {
-                    const isBooked = bookedSeats.includes(seatNumber);
-                    const seat = createSeatElement(seatNumber, isBooked);
-                    backRowDiv.appendChild(seat);
-                    if (isBooked) bookedCount++;
-                    seatNumber++;
-                }
-            }
-            seatMapContainer.appendChild(backRowDiv);
-
-            // Update counters
-            document.getElementById('bookedSeatCount').textContent = bookedCount;
-            document.getElementById('totalSeatCount').textContent = totalSeats;
-        });
-    }
-
-    function createSeatElement(seatNumber, isBooked) {
-        const seat = document.createElement('div');
-        seat.className = `seat ${isBooked ? 'booked' : 'available'}`;
-        seat.dataset.seatNumber = seatNumber;
-        seat.textContent = seatNumber;
-        
-        // Add tooltip
-        seat.title = `Seat ${seatNumber}: ${isBooked ? 'Booked' : 'Available'}`;
-        
-        return seat;
-    }
-
-    // Function to fetch booked seats from the database
-    // Function to fetch booked seats from the database
-    function fetchBookedSeats(busId) {
-        return new Promise((resolve, reject) => {
-            // Make an AJAX call to the server to get booked seats for this bus
-            fetch(`auth/get_booked_seats.php?bus_id=${busId}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-                    return response.json();
-                })
+            
+            return fetch(url)
+                .then(response => response.json())
                 .then(data => {
-                    if (data.error) {
-                        throw new Error(data.error);
-                    }
-                    // Return the array of booked seat numbers
-                    resolve(data.bookedSeats || []);
+                    if (data.error) throw new Error(data.error);
+                    return data.bookedSeats || [];
                 })
                 .catch(error => {
                     console.error('Error fetching booked seats:', error);
-                    // If there's an error, assume no seats are booked
-                    resolve([]);
+                    return [];
                 });
-        });
-    }
+        }
 
-    // Prevent selecting same origin and destination in add bus form
-    document.getElementById('origin').addEventListener('change', function() {
-        const destination = document.getElementById('destination');
-        const selectedValue = this.value;
-        
-        // Enable all options
-        for (let i = 0; i < destination.options.length; i++) {
-            destination.options[i].disabled = false;
-        }
-        
-        // Disable matching option in destination
-        for (let i = 0; i < destination.options.length; i++) {
-            if (destination.options[i].value === selectedValue) {
-                destination.options[i].disabled = true;
-                
-                // If currently selected option is now disabled, reset selection
-                if (destination.value === selectedValue) {
-                    destination.value = '';
-                }
-                break;
+        // Prevent selecting same origin and destination in add bus form
+        document.getElementById('origin').addEventListener('change', function() {
+            const destination = document.getElementById('destination');
+            const selectedValue = this.value;
+            
+            // Reset any previous error states
+            this.classList.remove('is-invalid');
+            destination.classList.remove('is-invalid');
+            const errorElement = document.getElementById('routeError');
+            if (errorElement) errorElement.remove();
+            
+            // Enable all options
+            for (let i = 0; i < destination.options.length; i++) {
+                destination.options[i].disabled = false;
             }
-        }
-    });
+            
+            // Disable matching option in destination
+            if (selectedValue) {
+                for (let i = 0; i < destination.options.length; i++) {
+                    if (destination.options[i].value === selectedValue) {
+                        destination.options[i].disabled = true;
+                        
+                        // If currently selected option is now disabled, reset selection
+                        if (destination.value === selectedValue) {
+                            destination.value = '';
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Prevent selecting same origin and destination in edit bus form
+        document.getElementById('editOrigin').addEventListener('change', function() {
+            const destination = document.getElementById('editDestination');
+            const selectedValue = this.value;
+            
+            // Reset any previous error states
+            this.classList.remove('is-invalid');
+            destination.classList.remove('is-invalid');
+            const errorElement = document.getElementById('editRouteError');
+            if (errorElement) errorElement.remove();
+            
+            // Enable all options
+            for (let i = 0; i < destination.options.length; i++) {
+                destination.options[i].disabled = false;
+            }
+            
+            // Disable matching option in destination
+            if (selectedValue) {
+                for (let i = 0; i < destination.options.length; i++) {
+                    if (destination.options[i].value === selectedValue) {
+                        destination.options[i].disabled = true;
+                        
+                        // If currently selected option is now disabled, reset selection
+                        if (destination.value === selectedValue) {
+                            destination.value = '';
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+
     
-    // Prevent selecting same origin and destination in edit bus form
-    document.getElementById('editOrigin').addEventListener('change', function() {
-        const destination = document.getElementById('editDestination');
-        const selectedValue = this.value;
-        
-        // Enable all options
-        for (let i = 0; i < destination.options.length; i++) {
-            destination.options[i].disabled = false;
-        }
-        
-        // Disable matching option in destination
-        for (let i = 0; i < destination.options.length; i++) {
-            if (destination.options[i].value === selectedValue) {
-                destination.options[i].disabled = true;
-                
-                // If currently selected option is now disabled, reset selection
-                if (destination.value === selectedValue) {
-                    destination.value = '';
-                }
-                break;
-            }
-        }
-    });
-</script>
+    </script>
 </body>
 </html>

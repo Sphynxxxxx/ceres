@@ -34,6 +34,7 @@ $selected_origin = isset($_GET['origin']) ? $_GET['origin'] : '';
 $selected_destination = isset($_GET['destination']) ? $_GET['destination'] : '';
 $booking_success = false;
 $booking_error = '';
+$booking_reference = '';
 
 // Process booking form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
@@ -134,23 +135,27 @@ try {
 $available_buses = [];
 if (!empty($selected_origin) && !empty($selected_destination)) {
     try {
-        $buses_query = "SELECT DISTINCT  b.id, b.bus_type, b.seat_capacity, b.plate_number, b.origin, b.destination, 
+        $buses_query = "SELECT DISTINCT b.id, b.bus_type, b.seat_capacity, b.plate_number, b.origin, b.destination, 
                         b.driver_name, b.conductor_name, b.status, 
                         TIME_FORMAT(s.departure_time, '%h:%i %p') as departure_time,
                         TIME_FORMAT(s.arrival_time, '%h:%i %p') as arrival_time,
-                        s.fare_amount
+                        s.fare_amount,
+                        (SELECT COUNT(*) FROM bookings 
+                         WHERE bus_id = b.id AND booking_date = ? AND booking_status = 'confirmed') as booked_seats
                         FROM buses b
                         JOIN schedules s ON b.id = s.bus_id
                         WHERE b.origin = ? AND b.destination = ? AND b.status = 'Active' 
                         ORDER BY s.departure_time";
         
         $buses_stmt = $conn->prepare($buses_query);
-        $buses_stmt->bind_param("ss", $selected_origin, $selected_destination);
+        $buses_stmt->bind_param("sss", $selected_date, $selected_origin, $selected_destination);
         $buses_stmt->execute();
         $buses_result = $buses_stmt->get_result();
         
         if ($buses_result) {
             while ($row = $buses_result->fetch_assoc()) {
+                // Calculate available seats
+                $row['available_seats'] = $row['seat_capacity'] - $row['booked_seats'];
                 $available_buses[] = $row;
             }
         }
@@ -158,6 +163,7 @@ if (!empty($selected_origin) && !empty($selected_destination)) {
         error_log("Error fetching buses: " . $e->getMessage());
     }
 }
+
 
 // Fetch user data (optional, for the form)
 $user_data = null;
@@ -174,6 +180,37 @@ try {
 } catch (Exception $e) {
     error_log("Error fetching user data: " . $e->getMessage());
 }
+
+// Fetch booked seats for a specific bus and date
+function getBookedSeats($conn, $busId, $date) {
+    $booked_seats = [];
+    
+    if ($busId && $date) {
+        try {
+            $query = "SELECT seat_number FROM bookings 
+                      WHERE bus_id = ? AND booking_date = ? AND booking_status = 'confirmed'";
+            $stmt = $conn->prepare($query);
+            $stmt->bind_param("is", $busId, $date);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            
+            while ($row = $result->fetch_assoc()) {
+                $booked_seats[] = (int)$row['seat_number'];
+            }
+        } catch (Exception $e) {
+            error_log("Error fetching booked seats: " . $e->getMessage());
+        }
+    }
+    
+    return $booked_seats;
+}
+
+// If we have a bus_id from post, prepare booked seats for the current bus
+$current_bus_id = isset($_POST['bus_id']) ? intval($_POST['bus_id']) : 0;
+$booked_seats = [];
+if ($current_bus_id > 0) {
+    $booked_seats = getBookedSeats($conn, $current_bus_id, $selected_date);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -185,65 +222,98 @@ try {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
     <link rel="stylesheet" href="css/user.css">
     <style>
-        /* Seat map styles */
         .seat {
-            width: 35px;
-            height: 35px;
+            width: 40px;
+            height: 40px;
             display: flex;
             align-items: center;
             justify-content: center;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 0.8rem;
+            font-size: 0.9rem;
             font-weight: bold;
             color: white;
-            transition: all 0.2s;
+            transition: all 0.3s;
+            margin: 5px;
+            position: relative;
+            border: 2px solid transparent;
+        }
+        
+        .seat-map-container {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.1);
         }
         
         .seat.available {
             background-color: #28a745;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .seat.available:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            border-color: #fff;
         }
         
         .seat.booked {
             background-color: #dc3545;
             cursor: not-allowed;
+            opacity: 0.8;
         }
         
         .seat.selected {
             background-color: #007bff;
             transform: scale(1.1);
-            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+            box-shadow: 0 0 10px rgba(0,123,255,0.6);
+            z-index: 2;
+            border-color: #fff;
         }
         
         .seat-row {
             display: flex;
             justify-content: center;
-            margin-bottom: 8px;
-            gap: 8px;
+            margin-bottom: 12px;
+            gap: 10px;
+            align-items: center;
         }
         
         .aisle {
             width: 20px;
+            height: 40px;
         }
         
         .driver-area {
-            max-width: 100px;
-            margin: 0 auto;
+            max-width: 180px;
+            margin: 0 auto 20px;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 8px;
+            border: 1px dashed #adb5bd;
+            font-weight: bold;
         }
         
-        .bus-selector {
-            background: #f8f9fa;
-            border-radius: 5px;
-            padding: 15px;
-            margin-bottom: 20px;
+        .seat-status-card {
+            box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            background-color: #f8f9fa;
+        }
+        
+        .seat-counter {
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: all 0.2s ease;
         }
         
         .bus-card {
-            border: 1px solid #ddd;
+            border: 1px solid #dee2e6;
             border-radius: 8px;
             margin-bottom: 15px;
             transition: all 0.3s;
             cursor: pointer;
+            background-color: #fff;
         }
         
         .bus-card:hover {
@@ -259,16 +329,23 @@ try {
         .ticket-summary-card {
             position: sticky;
             top: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
         }
         
         .booking-steps .step {
-            padding: 10px;
-            border-bottom: 2px solid #eee;
+            padding: 15px;
+            border-bottom: 3px solid #e9ecef;
             margin-bottom: 15px;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            transition: all 0.3s;
         }
         
         .booking-steps .step.active {
             border-bottom-color: #007bff;
+            background-color: #e7f1ff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         }
         
         .booking-steps .step-number {
@@ -278,9 +355,11 @@ try {
             width: 30px;
             height: 30px;
             border-radius: 50%;
-            background-color: #eee;
-            color: #666;
+            background-color: #e9ecef;
+            color: #495057;
             margin-right: 10px;
+            font-weight: bold;
+            transition: all 0.3s;
         }
         
         .booking-steps .step.active .step-number {
@@ -288,45 +367,74 @@ try {
             color: white;
         }
         
-        /* Fleet display styles */
-        .fleet-section {
-            margin-top: 30px;
-            margin-bottom: 30px;
+        .seat-legend {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         }
         
-        .status-indicator {
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-weight: 500;
+        }
+        
+        .front-back-indicator {
+            background-color: #6c757d;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            margin: 10px 0;
             display: inline-block;
-            width: 10px;
-            height: 10px;
+            font-weight: 500;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .seat-row-label {
+            width: 25px;
+            height: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #e9ecef;
             border-radius: 50%;
-            margin-right: 5px;
+            font-weight: bold;
+            color: #495057;
         }
         
-        .status-active {
-            background-color: #28a745;
+        /* Animations */
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
         }
         
-        .status-maintenance {
-            background-color: #dc3545;
-        }
-        
-        .bus-info-table {
-            font-size: 0.9rem;
-        }
-        
-        .bus-info-table th {
-            background-color: #f8f9fa;
-            font-weight: 600;
+        .pulse-animation {
+            animation: pulse 1s infinite;
         }
         
         .nav-tabs .nav-link {
             color: #495057;
+            border-radius: 8px 8px 0 0;
+            padding: 10px 20px;
+            font-weight: 500;
         }
         
         .nav-tabs .nav-link.active {
             font-weight: 600;
             color: #007bff;
-            border-color: #dee2e6 #dee2e6 #fff;
+            background-color: #f8f9fa;
+        }
+        
+        .badge {
+            font-weight: 500;
+            padding: 5px 10px;
         }
     </style>
 </head>
@@ -477,10 +585,10 @@ try {
                                                     <div class="mb-3">
                                                         <label for="date" class="form-label">Travel Date*</label>
                                                         <input type="date" class="form-control" id="date" name="date" 
-                                                               value="<?php echo $selected_date; ?>" 
-                                                               min="<?php echo date('Y-m-d'); ?>" 
-                                                               max="<?php echo date('Y-m-d', strtotime('+30 days')); ?>" 
-                                                               required>
+                                                            value="<?php echo $selected_date; ?>" 
+                                                            min="<?php echo date('Y-m-d'); ?>" 
+                                                            max="<?php echo date('Y-m-d', strtotime('+30 days')); ?>" 
+                                                            required>
                                                     </div>
                                                 </div>
                                             </div>
@@ -492,7 +600,7 @@ try {
                                         </form>
                                     </div>
                                 </div>
-                                
+
                                 <?php if (!empty($selected_origin) && !empty($selected_destination)): ?>
                                 <!-- Bus Selection (Step 2) -->
                                 <div class="card mb-4" id="bus-selection">
@@ -503,14 +611,22 @@ try {
                                         <?php if (count($available_buses) > 0): ?>
                                         <div class="bus-list">
                                             <?php foreach ($available_buses as $index => $bus): ?>
-                                            <div class="bus-card p-3" data-bus-id="<?php echo $bus['id']; ?>" data-fare="<?php echo $bus['fare_amount']; ?>">
+                                            <div class="bus-card p-3" 
+                                                data-bus-id="<?php echo $bus['id']; ?>" 
+                                                data-fare="<?php echo $bus['fare_amount']; ?>" 
+                                                data-type="<?php echo $bus['bus_type']; ?>" 
+                                                data-capacity="<?php echo $bus['seat_capacity']; ?>" 
+                                                data-departure="<?php echo $bus['departure_time']; ?>" 
+                                                data-arrival="<?php echo $bus['arrival_time']; ?>"
+                                                data-booked="<?php echo $bus['booked_seats']; ?>"
+                                                data-available="<?php echo $bus['available_seats']; ?>">
                                                 <div class="row align-items-center">
                                                     <div class="col-md-1 text-center">
                                                         <div class="bus-icon">
                                                             <i class="fas fa-bus fs-3 text-primary"></i>
                                                         </div>
                                                     </div>
-                                                    <div class="col-md-4">
+                                                    <div class="col-md-3">
                                                         <h5 class="mb-1"><?php echo htmlspecialchars($bus['origin']); ?> to <?php echo htmlspecialchars($bus['destination']); ?></h5>
                                                         <p class="mb-0 text-muted">
                                                             <small>
@@ -531,13 +647,45 @@ try {
                                                         </p>
                                                     </div>
                                                     <div class="col-md-2 text-center">
+                                                        <!-- Seat availability information -->
+                                                        <div class="d-flex flex-column">
+                                                            <span class="badge bg-success mb-1">
+                                                                <i class="fas fa-check-circle me-1"></i>
+                                                                <?php echo $bus['available_seats']; ?> Available
+                                                            </span>
+                                                            <span class="badge bg-danger">
+                                                                <i class="fas fa-times-circle me-1"></i>
+                                                                <?php echo $bus['booked_seats']; ?> Booked
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-2 text-center">
                                                         <h5 class="mb-0 text-primary">₱<?php echo number_format($bus['fare_amount'], 2); ?></h5>
                                                         <small class="text-muted">per person</small>
                                                     </div>
-                                                    <div class="col-md-2 text-end">
+                                                    <div class="col-md-1 text-end">
                                                         <button type="button" class="btn btn-outline-primary btn-sm select-bus">
                                                             <i class="fas fa-check me-1"></i>Select
                                                         </button>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Seat Availability Progress Bar -->
+                                                <div class="mt-2">
+                                                    <?php 
+                                                    $availabilityPercentage = ($bus['available_seats'] / $bus['seat_capacity']) * 100;
+                                                    $progressClass = $availabilityPercentage > 66 ? 'bg-success' : ($availabilityPercentage > 33 ? 'bg-warning' : 'bg-danger');
+                                                    ?>
+                                                    <div class="progress" style="height: 8px;" title="Seat Availability">
+                                                        <div class="progress-bar <?php echo $progressClass; ?>" role="progressbar" 
+                                                            style="width: <?php echo $availabilityPercentage; ?>%"
+                                                            aria-valuenow="<?php echo $availabilityPercentage; ?>" aria-valuemin="0" aria-valuemax="100">
+                                                        </div>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between mt-1">
+                                                        <small class="text-muted">Fully Booked</small>
+                                                        <small class="text-muted">Seat Availability</small>
+                                                        <small class="text-muted">All Available</small>
                                                     </div>
                                                 </div>
                                             </div>
@@ -550,6 +698,7 @@ try {
                                         <?php endif; ?>
                                     </div>
                                 </div>
+                                <?php endif; ?>
                                 
                                 <!-- Seat Selection (Step 3) -->
                                 <div class="card mb-4" id="seat-selection" style="display: none;">
@@ -558,58 +707,81 @@ try {
                                     </div>
                                     <div class="card-body">
                                         <div class="row mb-3">
-                                            <div class="col-12 text-center">
-                                                <div class="seat-legend d-flex justify-content-center gap-4 mb-3">
-                                                    <div><span class="seat available d-inline-block me-2" style="width: 25px; height: 25px;"></span> Available</div>
-                                                    <div><span class="seat booked d-inline-block me-2" style="width: 25px; height: 25px;"></span> Booked</div>
-                                                    <div><span class="seat selected d-inline-block me-2" style="width: 25px; height: 25px;"></span> Your Selection</div>
+                                            <div class="col-12">
+                                                <div class="seat-legend">
+                                                    <div class="legend-item">
+                                                        <div class="seat available" style="width: 25px; height: 25px;"></div>
+                                                        <span>Available</span>
+                                                    </div>
+                                                    <div class="legend-item">
+                                                        <div class="seat booked" style="width: 25px; height: 25px;"></div>
+                                                        <span>Booked</span>
+                                                    </div>
+                                                    <div class="legend-item">
+                                                        <div class="seat selected" style="width: 25px; height: 25px;"></div>
+                                                        <span>Your Selection</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
                                         
-                                        <div class="text-center mb-3">
-                                            <div class="driver-area mb-4">
-                                                <div class="p-2 bg-secondary text-white rounded d-inline-block">
-                                                    <i class="fas fa-steering-wheel"></i> Driver
+                                        <div class="text-center mb-4">
+                                            <div class="driver-area">
+                                                <i class="fas fa-steering-wheel me-1"></i> Driver Area
+                                            </div>
+                                            <div class="front-back-indicator">
+                                                <i class="fas fa-arrow-up me-1"></i> Front of Bus
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="seat-map-container">
+                                            <div id="seatMapContainer" class="d-flex flex-column align-items-center justify-content-center">
+                                                <!-- Seat map will be dynamically loaded here -->
+                                                <div class="spinner-border text-primary mb-3" role="status">
+                                                    <span class="visually-hidden">Loading seats...</span>
                                                 </div>
+                                                <p>Loading seat map...</p>
                                             </div>
                                         </div>
                                         
-                                        <?php
-                                        // Calculate booked seats for the current bus and date
-                                        $booked_seats_query = "SELECT COUNT(*) as booked_count 
-                                                                FROM bookings 
-                                                                WHERE bus_id = ? 
-                                                                AND booking_date = ? 
-                                                                AND booking_status = 'confirmed'";
-                                        $booked_seats_stmt = $conn->prepare($booked_seats_query);
-                                        
-                                        // Use the first available bus's ID if exists
-                                        $bus_id = !empty($available_buses) ? $available_buses[0]['id'] : 0;
-                                        $booked_seats_stmt->bind_param("is", $bus_id, $selected_date);
-                                        $booked_seats_stmt->execute();
-                                        $booked_seats_result = $booked_seats_stmt->get_result();
-                                        $booked_seats_count = 0;
-                                        
-                                        if ($booked_seats_result && $booked_seats_result->num_rows > 0) {
-                                            $booked_seats_row = $booked_seats_result->fetch_assoc();
-                                            $booked_seats_count = $booked_seats_row['booked_count'];
-                                        }
-                                        
-                                        // Get total seat capacity for the bus
-                                        $total_seats = !empty($available_buses) ? $available_buses[0]['seat_capacity'] : 0;
-                                        ?>
-                                        
-                                        <div id="seatMapContainer" class="d-flex flex-wrap justify-content-center gap-2 mb-3">
-                                            <!-- Seat map will be dynamically loaded here -->
-                                            <div class="spinner-border text-primary" role="status">
-                                                <span class="visually-hidden">Loading seats...</span>
+                                        <div class="text-center mb-2">
+                                            <div class="front-back-indicator">
+                                                <i class="fas fa-arrow-down me-1"></i> Back of Bus
                                             </div>
                                         </div>
                                         
-                                        <div class="text-center mt-2 mb-3">
-                                            <div class="small text-muted">
-                                                <span id="bookedSeatCount"><?php echo $booked_seats_count; ?></span> seats booked out of <span id="totalSeatCount"><?php echo $total_seats; ?></span>
+                                        <div class="seat-status-card p-3 mb-4">
+                                            <div class="row align-items-center text-center">
+                                                <div class="col-md-4">
+                                                    <div class="d-flex align-items-center justify-content-center">
+                                                        <div class="seat-counter bg-success text-white rounded-circle p-2 me-2" style="width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                                            <span id="availableSeatCount">0</span>
+                                                        </div>
+                                                        <div>
+                                                            <span class="d-block fw-bold">Available Seats</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <div class="d-flex align-items-center justify-content-center">
+                                                        <div class="seat-counter bg-danger text-white rounded-circle p-2 me-2" style="width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                                            <span id="bookedSeatCount">0</span>
+                                                        </div>
+                                                        <div>
+                                                            <span class="d-block fw-bold">Booked Seats</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <div class="d-flex align-items-center justify-content-center">
+                                                        <div class="seat-counter bg-primary text-white rounded-circle p-2 me-2" style="width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                                            <span id="totalSeatCount">0</span>
+                                                        </div>
+                                                        <div>
+                                                            <span class="d-block fw-bold">Total Seats</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                         
@@ -618,7 +790,6 @@ try {
                                         </div>
                                     </div>
                                 </div>
-                                <?php endif; ?>
                             </div>
                             
                             <div class="col-md-4">
@@ -635,12 +806,12 @@ try {
                                             <input type="hidden" name="book_ticket" value="1">
                                             
                                             <div class="mb-3">
-                                                <label class="form-label">Passenger</label>
+                                                <label class="form-label fw-bold">Passenger Name</label>
                                                 <div class="form-control bg-light"><?php echo htmlspecialchars($user_name); ?></div>
                                             </div>
                                             
                                             <div class="mb-3">
-                                                <label class="form-label">Route</label>
+                                                <label class="form-label fw-bold">Route</label>
                                                 <div class="form-control bg-light" id="summary_route">
                                                     <?php if (!empty($selected_origin) && !empty($selected_destination)): ?>
                                                     <?php echo htmlspecialchars($selected_origin); ?> to <?php echo htmlspecialchars($selected_destination); ?>
@@ -650,35 +821,54 @@ try {
                                                 </div>
                                             </div>
                                             
+                                            <!-- Seat Availability Information -->
                                             <div class="mb-3">
-                                                <label class="form-label">Travel Date</label>
+                                                <label class="form-label fw-bold">Seat Availability</label>
+                                                <div id="summary_seat_info" class="mb-2">
+                                                    <span class="badge bg-secondary">Not selected</span>
+                                                </div>
+                                                <div id="seat-availability-visual">
+                                                    <div class="progress mb-2" style="height: 10px;">
+                                                        <div class="progress-bar bg-secondary" role="progressbar" 
+                                                            style="width: 100%"
+                                                            aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                                        </div>
+                                                    </div>
+                                                    <div class="small text-center text-muted">
+                                                        Select a bus to see availability
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold">Travel Date</label>
                                                 <div class="form-control bg-light" id="summary_date">
                                                     <?php echo date('F d, Y', strtotime($selected_date)); ?>
                                                 </div>
                                             </div>
                                             
                                             <div class="mb-3">
-                                                <label class="form-label">Bus Type</label>
+                                                <label class="form-label fw-bold">Bus Type</label>
                                                 <div class="form-control bg-light" id="summary_bus_type">Not selected</div>
                                             </div>
                                             
                                             <div class="mb-3">
-                                                <label class="form-label">Departure Time</label>
+                                                <label class="form-label fw-bold">Travel Time</label>
                                                 <div class="form-control bg-light" id="summary_departure">Not selected</div>
                                             </div>
                                             
                                             <div class="mb-3">
-                                                <label class="form-label">Selected Seat</label>
+                                                <label class="form-label fw-bold">Seat Number</label>
                                                 <div class="form-control bg-light" id="summary_seat">Not selected</div>
                                             </div>
                                             
                                             <div class="mb-3">
-                                                <label class="form-label">Fare Amount</label>
+                                                <label class="form-label fw-bold">Fare Amount</label>
                                                 <div class="form-control bg-light" id="summary_fare">₱0.00</div>
                                             </div>
                                             
                                             <div class="d-grid">
-                                                <button type="submit" class="btn btn-success" id="confirmBookingBtn" disabled>
+                                                <button type="submit" class="btn btn-success btn-lg" id="confirmBookingBtn" disabled>
                                                     <i class="fas fa-ticket-alt me-2"></i>Confirm Booking
                                                 </button>
                                             </div>
@@ -687,7 +877,8 @@ try {
                                 </div>
                             </div>
                         </div>
-                    </div>
+
+                        </div>
                     
                     <!-- View Bus Fleet Tab Content -->
                     <div class="tab-pane fade" id="view-fleet" role="tabpanel" aria-labelledby="view-fleet-tab">
@@ -771,7 +962,7 @@ try {
                                                                                 <li><strong>Driver:</strong> <?php echo htmlspecialchars($bus['driver_name']); ?></li>
                                                                                 <li><strong>Conductor:</strong> <?php echo htmlspecialchars($bus['conductor_name']); ?></li>
                                                                                 <li><strong>Active Bookings:</strong> <?php echo $bus['active_bookings']; ?></li>
-                                                                                <li><strong>Added On:</strong> <?php echo date('M d, Y', strtotime($bus['created_at'])); ?></li>
+                                                                                <li><strong>Added On:</strong> <?php echo isset($bus['created_at']) ? date('M d, Y', strtotime($bus['created_at'])) : 'N/A'; ?></li>
                                                                             </ul>
                                                                         </div>
                                                                     </div>
@@ -797,6 +988,9 @@ try {
             </div>
         </div>
     </div>
+                                                        
+                    
+
 
     <!-- Footer -->
     <footer class="footer mt-5">
@@ -831,7 +1025,6 @@ try {
         </div>
     </footer>
 
-    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // Initialize variables
@@ -844,6 +1037,12 @@ try {
             card.addEventListener('click', function() {
                 const busId = this.getAttribute('data-bus-id');
                 const fareAmount = this.getAttribute('data-fare');
+                const busType = this.getAttribute('data-type');
+                const capacity = this.getAttribute('data-capacity');
+                const departure = this.getAttribute('data-departure');
+                const arrival = this.getAttribute('data-arrival');
+                const bookedSeats = parseInt(this.getAttribute('data-booked') || '0');
+                const availableSeats = parseInt(this.getAttribute('data-available') || capacity);
                 
                 // Remove selection from all buses
                 document.querySelectorAll('.bus-card').forEach(function(c) {
@@ -857,9 +1056,12 @@ try {
                 // Store bus data for summary
                 selectedBusData = {
                     id: busId,
-                    type: this.querySelector('.badge').textContent.trim(),
-                    departure: this.querySelector('.text-muted small').textContent.trim(),
-                    fare: fareAmount
+                    type: busType === 'Aircondition' ? 'Aircon Bus' : 'Regular Bus',
+                    departure: `${departure} - ${arrival}`,
+                    capacity: capacity,
+                    fare: fareAmount,
+                    bookedSeats: bookedSeats,
+                    availableSeats: availableSeats
                 };
                 
                 // Update summary
@@ -867,6 +1069,35 @@ try {
                 document.getElementById('summary_bus_type').textContent = selectedBusData.type;
                 document.getElementById('summary_departure').textContent = selectedBusData.departure;
                 document.getElementById('summary_fare').textContent = '₱' + parseFloat(fareAmount).toFixed(2);
+                
+                // Add seat availability information to the summary if element exists
+                const seatInfoElement = document.getElementById('summary_seat_info');
+                if (seatInfoElement) {
+                    seatInfoElement.innerHTML = `
+                        <span class="badge bg-success me-1">${availableSeats} Available</span>
+                        <span class="badge bg-danger">${bookedSeats} Booked</span>
+                    `;
+                }
+                
+                // Update seat availability visual if element exists
+                const seatVisualElement = document.getElementById('seat-availability-visual');
+                if (seatVisualElement) {
+                    const availabilityPercentage = (availableSeats / capacity) * 100;
+                    const progressClass = availabilityPercentage > 66 ? 'bg-success' : 
+                                        (availabilityPercentage > 33 ? 'bg-warning' : 'bg-danger');
+                    
+                    seatVisualElement.innerHTML = `
+                        <div class="progress mb-2" style="height: 10px;">
+                            <div class="progress-bar ${progressClass}" role="progressbar" 
+                                style="width: ${availabilityPercentage}%"
+                                aria-valuenow="${availabilityPercentage}" aria-valuemin="0" aria-valuemax="100">
+                            </div>
+                        </div>
+                        <div class="small text-center">
+                            ${availableSeats} of ${capacity} seats available (${Math.round(availabilityPercentage)}%)
+                        </div>
+                    `;
+                }
                 
                 // Show seat selection
                 document.getElementById('seat-selection').style.display = 'block';
@@ -876,66 +1107,90 @@ try {
                 document.getElementById('step2').classList.add('active');
                 
                 // Generate seat map
-                generateSeatMap(busId, parseInt(this.querySelector('.text-muted small').textContent.match(/(\d+) Seats/)[1]));
+                generateSeatMap(busId, parseInt(capacity));
                 
                 // Scroll to seat selection
                 document.getElementById('seat-selection').scrollIntoView({ behavior: 'smooth' });
             });
         });
         
-        // Function to fetch booked seats from the database
-        function fetchBookedSeats(busId) {
-            return new Promise((resolve, reject) => {
-                // Make an AJAX call to the server to get booked seats for this bus
-                fetch(`../tabs/auth/get_booked_seats.php?bus_id=${busId}&date=${document.getElementById('date').value}`)
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error('Network response was not ok');
-                        }
-                        return response.json();
-                    })
-                    .then(data => {
-                        if (data.error) {
-                            throw new Error(data.error);
-                        }
-                        // Return the array of booked seat numbers
-                        resolve(data.bookedSeats);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching booked seats:', error);
-                        // If there's an error, assume no seats are booked
-                        resolve([]);
-                    });
-            });
+        // Fetch booked seats and generate seat map
+        async function fetchBookedSeats(busId, date) {
+            try {
+                const response = await fetch(`../../backend/connections/get_booked_seats.php?bus_id=${busId}&date=${date}`);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch booked seats');
+                }
+                
+                const data = await response.json();
+                return data.bookedSeats || [];
+            } catch (error) {
+                console.error('Error fetching booked seats:', error);
+                // If there's an error, we'll use PHP-provided booked seats if available
+                // or assume no seats are booked
+                return <?php echo json_encode($booked_seats); ?> || [];
+            }
         }
         
-        function generateSeatMap(busId, totalSeats) {
+        // Generate the seat map layout
+        async function generateSeatMap(busId, totalSeats) {
             const seatMapContainer = document.getElementById('seatMapContainer');
-            seatMapContainer.innerHTML = '';
+            const date = document.getElementById('date').value;
             
-            // Get booked seats from database
-            fetchBookedSeats(busId).then(bookedSeats => {
-                let bookedCount = 0;
+            // Show loading state
+            seatMapContainer.innerHTML = `
+                <div class="text-center p-4">
+                    <div class="spinner-border text-primary mb-3" role="status">
+                        <span class="visually-hidden">Loading seats...</span>
+                    </div>
+                    <p>Loading seat map...</p>
+                </div>
+            `;
+            
+            try {
+                // Get booked seats
+                const bookedSeats = await fetchBookedSeats(busId, date);
                 
-                // Set seating layout based on bus type and seat count
-                let seatsPerRow = 4; // Default 2-2 layout
-                let rowCount = Math.ceil(totalSeats / seatsPerRow);
+                // Calculate seat counts
+                const bookedCount = bookedSeats.length;
+                const availableCount = totalSeats - bookedCount;
                 
-                // Create bus layout - with an aisle in the middle
+                // Update seat counters
+                document.getElementById('bookedSeatCount').textContent = bookedCount;
+                document.getElementById('availableSeatCount').textContent = availableCount;
+                document.getElementById('totalSeatCount').textContent = totalSeats;
+                
+                // Clear container
+                seatMapContainer.innerHTML = '';
+                
                 let seatNumber = 1;
+                const seatsPerRow = 4; // Default 2-2 layout
                 
-                for (let row = 1; row <= rowCount; row++) {
+                // Always reserve 5 seats for the back row
+                const backRowSeats = 5;
+                const remainingSeats = totalSeats - backRowSeats;
+                const normalRows = Math.floor(remainingSeats / seatsPerRow);
+                const extraSeats = remainingSeats % seatsPerRow;
+                
+                // Create normal rows (2-2 layout)
+                for (let row = 1; row <= normalRows; row++) {
+                    // Create the row element
                     const rowDiv = document.createElement('div');
                     rowDiv.className = 'seat-row';
                     
+                    // Add row label (A, B, C, etc.)
+                    const rowLabel = document.createElement('div');
+                    rowLabel.className = 'seat-row-label';
+                    rowLabel.textContent = String.fromCharCode(64 + row); // A, B, C, etc.
+                    rowDiv.appendChild(rowLabel);
+                    
                     // Add left side seats (2 seats)
                     for (let i = 0; i < seatsPerRow/2; i++) {
-                        if (seatNumber <= totalSeats) {
+                        if (seatNumber <= totalSeats - backRowSeats) {
                             const isBooked = bookedSeats.includes(seatNumber);
                             const seat = createSeatElement(seatNumber, isBooked);
                             rowDiv.appendChild(seat);
-                            
-                            if (isBooked) bookedCount++;
                             seatNumber++;
                         }
                     }
@@ -947,12 +1202,10 @@ try {
                     
                     // Add right side seats (2 seats)
                     for (let i = 0; i < seatsPerRow/2; i++) {
-                        if (seatNumber <= totalSeats) {
+                        if (seatNumber <= totalSeats - backRowSeats) {
                             const isBooked = bookedSeats.includes(seatNumber);
                             const seat = createSeatElement(seatNumber, isBooked);
                             rowDiv.appendChild(seat);
-                            
-                            if (isBooked) bookedCount++;
                             seatNumber++;
                         }
                     }
@@ -960,30 +1213,116 @@ try {
                     seatMapContainer.appendChild(rowDiv);
                 }
                 
-                // Update counters
-                document.getElementById('bookedSeatCount').textContent = bookedCount;
-                document.getElementById('totalSeatCount').textContent = totalSeats;
-            });
+                // Handle extra seats if any (create a partial row before the back row)
+                if (extraSeats > 0) {
+                    const extraRowDiv = document.createElement('div');
+                    extraRowDiv.className = 'seat-row';
+                    
+                    // Add row label
+                    const rowLabel = document.createElement('div');
+                    rowLabel.className = 'seat-row-label';
+                    rowLabel.textContent = String.fromCharCode(64 + normalRows + 1); // Next letter after normal rows
+                    extraRowDiv.appendChild(rowLabel);
+                    
+                    // Add left side seats
+                    const leftSeats = Math.min(extraSeats, 2);
+                    for (let i = 0; i < leftSeats; i++) {
+                        const isBooked = bookedSeats.includes(seatNumber);
+                        const seat = createSeatElement(seatNumber, isBooked);
+                        extraRowDiv.appendChild(seat);
+                        seatNumber++;
+                    }
+                    
+                    // Add aisle
+                    const aisleDiv = document.createElement('div');
+                    aisleDiv.className = 'aisle';
+                    extraRowDiv.appendChild(aisleDiv);
+                    
+                    // Add right side seats if needed
+                    const rightSeats = extraSeats - leftSeats;
+                    for (let i = 0; i < rightSeats; i++) {
+                        const isBooked = bookedSeats.includes(seatNumber);
+                        const seat = createSeatElement(seatNumber, isBooked);
+                        extraRowDiv.appendChild(seat);
+                        seatNumber++;
+                    }
+                    
+                    seatMapContainer.appendChild(extraRowDiv);
+                }
+                
+                // Create the back row with exactly 5 seats
+                if (backRowSeats > 0 && seatNumber <= totalSeats) {
+                    const backRowDiv = document.createElement('div');
+                    backRowDiv.className = 'seat-row back-row mt-4';
+                    
+                    // Add row label - use the next letter after the previous rows
+                    const backRowLetter = String.fromCharCode(64 + normalRows + (extraSeats > 0 ? 2 : 1));
+                    const rowLabel = document.createElement('div');
+                    rowLabel.className = 'seat-row-label';
+                    rowLabel.textContent = backRowLetter;
+                    backRowDiv.appendChild(rowLabel);
+                    
+                    // Add all 5 back row seats
+                    for (let i = 0; i < backRowSeats; i++) {
+                        if (seatNumber <= totalSeats) {
+                            const isBooked = bookedSeats.includes(seatNumber);
+                            const seat = createSeatElement(seatNumber, isBooked);
+                            backRowDiv.appendChild(seat);
+                            seatNumber++;
+                        }
+                    }
+                    
+                    // Add a special class to identify this as the 5-seat back row
+                    backRowDiv.classList.add('back-row-five');
+                    seatMapContainer.appendChild(backRowDiv);
+                }
+                
+                // Initialize tooltips if Bootstrap is available
+                if (typeof bootstrap !== 'undefined') {
+                    const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+                    [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+                }
+            } catch (error) {
+                console.error('Error generating seat map:', error);
+                seatMapContainer.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Error loading seat map. Please try again.
+                    </div>
+                `;
+            }
         }
         
+        // Create a seat element
         function createSeatElement(seatNumber, isBooked) {
             const seat = document.createElement('div');
-            seat.className = `seat ${isBooked ? 'booked' : 'available'}`;
+            seat.className = isBooked ? 'seat booked' : 'seat available';
             seat.dataset.seatNumber = seatNumber;
             seat.textContent = seatNumber;
             
-            // Add tooltip
-            seat.title = `Seat ${seatNumber}: ${isBooked ? 'Booked' : 'Available'}`;
+            // Add tooltip with more detailed information
+            seat.setAttribute('data-bs-toggle', 'tooltip');
+            seat.setAttribute('data-bs-placement', 'top');
+            
+            if (isBooked) {
+                seat.setAttribute('title', `Seat ${seatNumber}: Already booked`);
+                // Add a small lock icon to indicate booked status (optional)
+                if (!seat.querySelector('.seat-icon')) {
+                    const icon = document.createElement('i');
+                    icon.className = 'fas fa-lock position-absolute';
+                    icon.style.fontSize = '10px';
+                    icon.style.top = '5px';
+                    icon.style.right = '5px';
+                    icon.style.color = 'rgba(255,255,255,0.7)';
+                    seat.appendChild(icon);
+                }
+            } else {
+                seat.setAttribute('title', `Seat ${seatNumber}: Available - Click to select`);
+            }
             
             // Add click handler for available seats
             if (!isBooked) {
                 seat.addEventListener('click', function() {
-                    // Only allow selection if a bus is selected
-                    if (!selectedBusId) {
-                        alert('Please select a bus first');
-                        return;
-                    }
-                    
                     // Remove selection from all seats
                     document.querySelectorAll('.seat.selected').forEach(function(s) {
                         s.classList.remove('selected');
@@ -993,11 +1332,18 @@ try {
                     // Select this seat
                     this.classList.remove('available');
                     this.classList.add('selected');
-                    selectedSeatNumber = this.dataset.seatNumber;
+                    this.classList.add('pulse-animation');
+                    
+                    // After animation completes, remove it
+                    setTimeout(() => {
+                        this.classList.remove('pulse-animation');
+                    }, 1000);
+                    
+                    selectedSeatNumber = seatNumber;
                     
                     // Update summary
                     document.getElementById('summary_seat_number').value = selectedSeatNumber;
-                    document.getElementById('summary_seat').textContent = 'Seat ' + selectedSeatNumber;
+                    document.getElementById('summary_seat').textContent = `Seat ${selectedSeatNumber}`;
                     
                     // Enable confirm button
                     document.getElementById('confirmBookingBtn').disabled = false;
@@ -1005,19 +1351,75 @@ try {
                     // Update steps
                     document.getElementById('step2').classList.remove('active');
                     document.getElementById('step3').classList.add('active');
+                    
+                    // Show visual confirmation
+                    showSeatSelectedAlert(selectedSeatNumber);
                 });
             }
             
             return seat;
         }
         
+        // Show seat selection alert
+        function showSeatSelectedAlert(seatNumber) {
+            // Create the alert
+            const seatSelectedAlert = document.createElement('div');
+            seatSelectedAlert.className = 'alert alert-success alert-dismissible fade show mt-3';
+            seatSelectedAlert.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                <strong>Seat ${seatNumber} selected!</strong> You can now confirm your booking.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            
+            // Remove any existing alerts
+            const existingAlerts = document.querySelectorAll('#seat-selection .alert-success');
+            existingAlerts.forEach(alert => alert.remove());
+            
+            // Add the alert to the seat selection card
+            document.querySelector('#seat-selection .card-body').appendChild(seatSelectedAlert);
+            
+            // Highlight the booking summary
+            const summaryCard = document.querySelector('.ticket-summary-card');
+            summaryCard.style.boxShadow = '0 0 15px rgba(40, 167, 69, 0.5)';
+            
+            // Remove highlight after a few seconds
+            setTimeout(() => {
+                summaryCard.style.boxShadow = '';
+            }, 3000);
+        }
+        
         // Form validation
         document.getElementById('bookingForm').addEventListener('submit', function(e) {
+            // Check if bus is selected
+            if (!selectedBusId) {
+                e.preventDefault();
+                alert('Please select a bus first');
+                document.getElementById('bus-selection').scrollIntoView({ behavior: 'smooth' });
+                return;
+            }
+            
             // Check if seat is selected
             if (!selectedSeatNumber) {
                 e.preventDefault();
                 alert('Please select a seat');
+                document.getElementById('seat-selection').scrollIntoView({ behavior: 'smooth' });
+                return;
             }
+            
+            // Add a loading overlay when submitting
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                    background-color: rgba(0,0,0,0.5); z-index: 9999; display: flex; 
+                    justify-content: center; align-items: center;">
+                    <div class="card p-4 text-center">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="visually-hidden">Processing booking...</span>
+                        </div>
+                        <h5>Processing your booking...</h5>
+                        <p>Please wait, this may take a few moments.</p>
+                    </div>
+                </div>
+            `);
         });
         
         // Prevent selecting same origin and destination
@@ -1049,8 +1451,56 @@ try {
             row.style.cursor = 'pointer';
         });
         
-        // Preserve active tab on page refresh
+        // Handle tab navigation preservation
         document.addEventListener('DOMContentLoaded', function() {
+            // Add CSS styling for booked seats with striped pattern
+            const style = document.createElement('style');
+            style.textContent = `
+                .back-row-five {
+                    justify-content: center !important;
+                    padding-right: 25px;
+                }
+                
+                .back-row-five .seat {
+                    margin-left: 3px;
+                    margin-right: 3px;
+                }
+                
+                .seat.booked {
+                    background-color: #dc3545;
+                    opacity: 0.7;
+                    position: relative;
+                    overflow: hidden;
+                }
+                
+                .seat.booked::after {
+                    content: "";
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: repeating-linear-gradient(
+                        45deg,
+                        rgba(0, 0, 0, 0.1),
+                        rgba(0, 0, 0, 0.1) 5px,
+                        rgba(0, 0, 0, 0.2) 5px,
+                        rgba(0, 0, 0, 0.2) 10px
+                    );
+                }
+                
+                @media (max-width: 768px) {
+                    .seat-row {
+                        flex-wrap: wrap;
+                    }
+                    
+                    .back-row-five {
+                        padding-right: 0;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+            
             // Get the active tab from URL if present
             const urlParams = new URLSearchParams(window.location.search);
             const tab = urlParams.get('tab');
@@ -1071,6 +1521,70 @@ try {
                     this.appendChild(hiddenInput);
                 }
             });
+            
+            // Initialize tooltips
+            const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+            [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+            
+            // Show booking success notification with animation
+            <?php if ($booking_success): ?>
+            setTimeout(() => {
+                document.querySelector('.alert-success').scrollIntoView({ behavior: 'smooth' });
+            }, 300);
+            <?php endif; ?>
+            
+            // Create seat info elements if they don't exist
+            const summaryCard = document.querySelector('.ticket-summary-card .card-body');
+            if (summaryCard) {
+                // Add seat availability info elements if they don't exist
+                if (!document.getElementById('summary_seat_info')) {
+                    const seatInfoDiv = document.createElement('div');
+                    seatInfoDiv.className = 'mb-3';
+                    seatInfoDiv.innerHTML = `
+                        <label class="form-label fw-bold">Seat Availability</label>
+                        <div id="summary_seat_info" class="mb-2">
+                            <span class="badge bg-secondary">Not selected</span>
+                        </div>
+                        <div id="seat-availability-visual">
+                            <div class="progress mb-2" style="height: 10px;">
+                                <div class="progress-bar bg-secondary" role="progressbar" 
+                                    style="width: 100%"
+                                    aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                </div>
+                            </div>
+                            <div class="small text-center text-muted">
+                                Select a bus to see seat availability
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Insert after the route information
+                    const routeElement = summaryCard.querySelector('#summary_route').parentNode;
+                    routeElement.parentNode.insertBefore(seatInfoDiv, routeElement.nextSibling);
+                }
+            }
+            
+            // Add seat selection guide if it doesn't exist
+            const seatSelectionCard = document.querySelector('#seat-selection .card-body');
+            if (seatSelectionCard && !seatSelectionCard.querySelector('.seat-selection-guide')) {
+                const seatMapContainer = document.querySelector('.seat-map-container');
+                if (seatMapContainer) {
+                    const guideElement = document.createElement('div');
+                    guideElement.className = 'alert alert-info mb-3 seat-selection-guide';
+                    guideElement.innerHTML = `
+                        <div class="d-flex align-items-center">
+                            <div class="me-3">
+                                <i class="fas fa-info-circle fa-2x text-info"></i>
+                            </div>
+                            <div>
+                                <h6 class="alert-heading mb-1">Seat Selection Guide</h6>
+                                <p class="mb-0 small">The seats shown in <span class="text-success fw-bold">green</span> are available for booking, while the seats in <span class="text-danger fw-bold">red</span> are already booked. The back row has 5 seats. Please select one seat for your journey.</p>
+                            </div>
+                        </div>
+                    `;
+                    seatSelectionCard.insertBefore(guideElement, seatMapContainer);
+                }
+            }
         });
         
         // Initialize: Trigger origin change to set initial disabled states
