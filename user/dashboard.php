@@ -58,49 +58,124 @@ try {
     <title>Dashboard - ISAT-U Ceres Bus Ticket System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/user.css">
     <style>
-        .feature-card {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-            overflow: hidden;
+        /* Base styles */
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background: url('assets/Ceres_Bus.JPG') no-repeat center center fixed;
+            background-size: cover;
+            min-height: 100vh;
         }
-        
-        .feature-card .card-header {
-            background: #1d3557;
+
+        /* Overlay for readability */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.3); 
+            z-index: -1;
+        }
+
+        .container-wide {
+            max-width: 98%;
+            margin: auto;
+            padding: 1rem;
+            color: #fff;
+        }
+
+        /* Glassmorphism Cards */
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            color: #fff;
+        }
+
+        .card-header {
+            background: #191970; !important;
             color: white;
-            padding: 12px;
-            text-align: center;
             font-weight: 600;
-        }
-        
-        .feature-card .card-body {
-            padding: 20px;
             text-align: center;
         }
-        
+
+        .feature-card .card-body {
+            text-align: center;
+            background-color: rgb(119, 118, 118);
+            
+        }
+
         .feature-icon {
             font-size: 3rem;
-            color: #1d3557;
+            color: #ffb100;
             margin-bottom: 15px;
         }
-        
-        .feature-card .btn-warning {
+
+    
+        .alert-warning {
+            background: rgba(255, 193, 7, 0.2);
+            color: #fff;
+            border: none;
+            backdrop-filter: blur(8px);
+        }
+
+        .alert-info {
+            background: rgba(23, 162, 184, 0.2);
+            color: #fff;
+            border: none;
+            backdrop-filter: blur(8px);
+        }
+
+        .list-group-item-action {
+            background: transparent;
+            color: #fff;
+            border-radius: 10px;
+        }
+
+        .list-group-item-action:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-warning {
             background-color: #ffb100;
             border-color: #ffb100;
+            color: #000;
+            font-weight: 500;
         }
-        
-        .feature-card .btn-outline-warning {
-            color: #212529;
+
+        .btn-outline-warning {
+            color: #fff;
             border-color: #ffb100;
+            font-weight: 500;
         }
-        
-        .feature-card .btn-outline-warning:hover {
+
+        .btn-outline-warning:hover {
             background-color: #ffb100;
             border-color: #ffb100;
-            color: #212529;
+            color: #000;
+        }
+
+        footer.footer {
+            background: rgba(29, 53, 87, 0.6);
+            color: #fff;
+            backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        footer.footer address {
+            color: #ddd;
+        }
+
+        footer.footer a.text-white {
+            color: #fff !important;
         }
     </style>
 </head>
@@ -148,10 +223,10 @@ try {
         </div>
     </nav>
 
-    <div class="container py-4">
-        <div class="row">
+    <div class="container-wide">
+        <div class="row g-4">
             <!-- Sidebar -->
-            <div class="col-md-3">
+            <div class="col-md-3 sidebar">
                 <div class="card mb-4">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="fas fa-user-circle me-2"></i>Account Menu</h5>
@@ -176,7 +251,6 @@ try {
                         </div>
                     </div>
                 </div>
-                
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Account Info</h5>
@@ -193,8 +267,8 @@ try {
                     </div>
                 </div>
             </div>
-            
-            <!-- Main Content -->
+
+            <!-- Main Content Area -->
             <div class="col-md-9">
                 <div class="card mb-4">
                     <div class="card-header">
@@ -204,12 +278,12 @@ try {
                         <div class="alert alert-warning" role="alert">
                             <i class="fas fa-exclamation-triangle me-2"></i> Welcome to your ISAT-U Ceres Bus Commuter dashboard. From here, you can manage your bookings and account information.
                         </div>
-                        
-                        <!-- Feature Cards (First row) -->
-                        <div class="row">
+
+                        <!-- Feature Cards Row 1 -->
+                        <div class="row g-4">
                             <!-- Routes Card -->
                             <div class="col-md-4">
-                                <div class="feature-card">
+                                <div class="feature-card h-100">
                                     <div class="card-header">
                                         <i class="fas fa-route"></i> Routes
                                     </div>
@@ -219,14 +293,14 @@ try {
                                         </div>
                                         <h5>View Available Routes</h5>
                                         <p>Check all available routes connecting key locations.</p>
-                                        <a href="tabs/routes.php" class="btn btn-warning">Explore Routes</a>
+                                        <a href="tabs/routes.php" class="btn btn-warning w-100">Explore Routes</a>
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <!-- Schedule Card -->
                             <div class="col-md-4">
-                                <div class="feature-card">
+                                <div class="feature-card h-100">
                                     <div class="card-header">
                                         <i class="fas fa-calendar-alt"></i> Schedule
                                     </div>
@@ -236,14 +310,14 @@ try {
                                         </div>
                                         <h5>Bus Schedules</h5>
                                         <p>View departure and arrival times for all Ceres bus routes.</p>
-                                        <a href="schedule.php" class="btn btn-warning">Check Schedules</a>
+                                        <a href="schedule.php" class="btn btn-warning w-100">Check Schedules</a>
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <!-- Booking Card -->
                             <div class="col-md-4">
-                                <div class="feature-card">
+                                <div class="feature-card h-100">
                                     <div class="card-header">
                                         <i class="fas fa-ticket-alt"></i> Booking
                                     </div>
@@ -253,17 +327,17 @@ try {
                                         </div>
                                         <h5>Book Your Ticket</h5>
                                         <p>Reserve your seat in advance with easy booking system.</p>
-                                        <a href="tabs/booking.php" class="btn btn-warning">Book Now</a>
+                                        <a href="tabs/booking.php" class="btn btn-warning w-100">Book Now</a>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Feature Cards (Second row) -->
-                        <div class="row">
+
+                        <!-- Feature Cards Row 2 -->
+                        <div class="row g-4 mt-2">
                             <!-- Locations Card -->
                             <div class="col-md-4">
-                                <div class="feature-card">
+                                <div class="feature-card h-100">
                                     <div class="card-header">
                                         <i class="fas fa-map-marker-alt"></i> Locations
                                     </div>
@@ -273,14 +347,14 @@ try {
                                         </div>
                                         <h5>Bus Stop Locations</h5>
                                         <p>Find detailed information about all bus stops and terminals.</p>
-                                        <a href="locations.php" class="btn btn-outline-warning">View Locations</a>
+                                        <a href="locations.php" class="btn btn-outline-warning w-100">View Locations</a>
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <!-- Fares Card -->
                             <div class="col-md-4">
-                                <div class="feature-card">
+                                <div class="feature-card h-100">
                                     <div class="card-header">
                                         <i class="fas fa-money-bill-wave"></i> Fares
                                     </div>
@@ -290,14 +364,14 @@ try {
                                         </div>
                                         <h5>Ticket Fares</h5>
                                         <p>Check ticket prices for different routes and plan your budget.</p>
-                                        <a href="fares.php" class="btn btn-outline-warning">View Fares</a>
+                                        <a href="fares.php" class="btn btn-outline-warning w-100">View Fares</a>
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <!-- Contact Card -->
                             <div class="col-md-4">
-                                <div class="feature-card">
+                                <div class="feature-card h-100">
                                     <div class="card-header">
                                         <i class="fas fa-address-book"></i> Contact
                                     </div>
@@ -307,12 +381,13 @@ try {
                                         </div>
                                         <h5>Need Help?</h5>
                                         <p>Reach out to our support team for assistance with your booking.</p>
-                                        <a href="contact.php" class="btn btn-outline-warning">Contact Us</a>
+                                        <a href="contact.php" class="btn btn-outline-warning w-100">Contact Us</a>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        
+
+                        <!-- Upcoming Trips -->
                         <div class="card mt-4">
                             <div class="card-header bg-light">
                                 <h5 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>Upcoming Trips</h5>
@@ -325,19 +400,20 @@ try {
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="fas fa-bell me-2"></i>Announcements</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="alert alert-info mb-0">
-                            <h5 class="alert-heading"><i class="fas fa-bullhorn me-2"></i>Additional Trips Available</h5>
-                            <p>Additional buses have been scheduled for the upcoming finals week to accommodate increased commuter traffic. Please book your tickets in advance!</p>
-                            <hr>
-                            <p class="mb-0">For any inquiries, please contact our support team at (033) 337-8888.</p>
+
+                        <!-- Announcements -->
+                        <div class="card mt-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-bell me-2"></i>Announcements</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="alert alert-info mb-0">
+                                    <h5 class="alert-heading"><i class="fas fa-bullhorn me-2"></i>Additional Trips Available</h5>
+                                    <p>Additional buses have been scheduled for the upcoming finals week to accommodate increased commuter traffic. Please book your tickets in advance!</p>
+                                    <hr>
+                                    <p class="mb-0">For any inquiries, please contact our support team at (033) 337-8888.</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

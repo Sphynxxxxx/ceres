@@ -67,6 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
                 $booking_error = "This seat is already booked. Please select another seat.";
             } else {
                 // Insert booking
+                // Note: Modifying the query to match your DB schema (no booking_reference field)
                 $insert_query = "INSERT INTO bookings (bus_id, user_id, seat_number, booking_date, booking_status, created_at) 
                                 VALUES (?, ?, ?, ?, 'confirmed', NOW())";
                 $insert_stmt = $conn->prepare($insert_query);
@@ -79,11 +80,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
                     // Generate booking reference
                     $booking_reference = 'BK-' . date('Ymd') . '-' . $booking_id;
                     
-                    // Update booking with reference
-                    $update_query = "UPDATE bookings SET booking_reference = ? WHERE id = ?";
-                    $update_stmt = $conn->prepare($update_query);
-                    $update_stmt->bind_param("si", $booking_reference, $booking_id);
-                    $update_stmt->execute();
+                    // Check if booking_reference column exists in the bookings table
+                    $check_column_query = "SHOW COLUMNS FROM bookings LIKE 'booking_reference'";
+                    $check_column_result = $conn->query($check_column_query);
+                    
+                    // If booking_reference column exists, update it
+                    if ($check_column_result && $check_column_result->num_rows > 0) {
+                        $update_query = "UPDATE bookings SET booking_reference = ? WHERE id = ?";
+                        $update_stmt = $conn->prepare($update_query);
+                        $update_stmt->bind_param("si", $booking_reference, $booking_id);
+                        $update_stmt->execute();
+                    }
                     
                 } else {
                     $booking_error = "Error creating booking. Please try again.";
@@ -97,10 +104,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
     }
 }
 
-// Fetch available locations (for origin and destination dropdowns)
+// Fetch all destinations from routes table for dropdowns
 $locations = [];
 try {
-    $locations_query = "SELECT DISTINCT origin FROM buses UNION SELECT DISTINCT destination FROM buses ORDER BY origin";
+    // Changed to use routes table for origin/destination
+    $locations_query = "SELECT DISTINCT origin FROM routes UNION SELECT DISTINCT destination FROM routes ORDER BY origin";
     $locations_result = $conn->query($locations_query);
     
     if ($locations_result) {
@@ -115,6 +123,7 @@ try {
 // Fetch all buses for display (regardless of route selection)
 $all_buses = [];
 try {
+    // Updated to match your DB schema (using route_name field)
     $all_buses_query = "SELECT b.*, 
                         (SELECT COUNT(*) FROM bookings WHERE bus_id = b.id AND booking_status = 'confirmed') as active_bookings
                         FROM buses b 
@@ -124,6 +133,11 @@ try {
     
     if ($all_buses_result) {
         while ($row = $all_buses_result->fetch_assoc()) {
+            // Extract origin and destination from route_name field (format: origin → destination)
+            $route_parts = explode(' → ', $row['route_name']);
+            $row['origin'] = $route_parts[0] ?? '';
+            $row['destination'] = $route_parts[1] ?? '';
+            
             $all_buses[] = $row;
         }
     }
@@ -135,35 +149,81 @@ try {
 $available_buses = [];
 if (!empty($selected_origin) && !empty($selected_destination)) {
     try {
-        $buses_query = "SELECT DISTINCT b.id, b.bus_type, b.seat_capacity, b.plate_number, b.origin, b.destination, 
-                        b.driver_name, b.conductor_name, b.status, 
-                        TIME_FORMAT(s.departure_time, '%h:%i %p') as departure_time,
-                        TIME_FORMAT(s.arrival_time, '%h:%i %p') as arrival_time,
-                        s.fare_amount,
-                        (SELECT COUNT(*) FROM bookings 
-                         WHERE bus_id = b.id AND booking_date = ? AND booking_status = 'confirmed') as booked_seats
-                        FROM buses b
-                        JOIN schedules s ON b.id = s.bus_id
-                        WHERE b.origin = ? AND b.destination = ? AND b.status = 'Active' 
-                        ORDER BY s.departure_time";
+        // Diagnostic logging
+        error_log("Search Parameters:");
+        error_log("Origin: $selected_origin");
+        error_log("Destination: $selected_destination");
+        error_log("Date: $selected_date");
+
+        // Updated query to use route_name from buses table
+        $buses_query = "SELECT b.id, b.bus_type, b.seat_capacity, b.plate_number, 
+                b.driver_name, b.conductor_name, b.status, b.route_name,
+                s.departure_time, 
+                s.arrival_time,
+                r.fare as fare_amount,
+                (SELECT COUNT(*) FROM bookings 
+                 WHERE bus_id = b.id AND DATE(booking_date) = ? AND booking_status = 'confirmed') as booked_seats
+                FROM buses b
+                LEFT JOIN routes r ON b.route_name LIKE CONCAT(r.origin, ' → ', r.destination)
+                LEFT JOIN schedules s ON b.id = s.bus_id
+                WHERE 
+                    b.route_name LIKE ? 
+                    AND b.status = 'Active' 
+                GROUP BY b.id
+                ORDER BY s.departure_time";
         
+        // Prepare and execute the statement
         $buses_stmt = $conn->prepare($buses_query);
-        $buses_stmt->bind_param("sss", $selected_date, $selected_origin, $selected_destination);
-        $buses_stmt->execute();
+        
+        // Create route pattern
+        $route_pattern = '%' . $selected_origin . ' → ' . $selected_destination . '%';
+        
+        // Bind parameters
+        $buses_stmt->bind_param("ss", $selected_date, $route_pattern);
+        
+        // Execute and check for errors
+        if (!$buses_stmt->execute()) {
+            error_log("Query execution error: " . $buses_stmt->error);
+            throw new Exception("Failed to execute bus search query");
+        }
+        
+        // Get results
         $buses_result = $buses_stmt->get_result();
         
-        if ($buses_result) {
-            while ($row = $buses_result->fetch_assoc()) {
-                // Calculate available seats
-                $row['available_seats'] = $row['seat_capacity'] - $row['booked_seats'];
-                $available_buses[] = $row;
+        // Fetch buses
+        while ($row = $buses_result->fetch_assoc()) {
+            // Format times
+            $row['departure_time'] = date('h:i A', strtotime($row['departure_time']));
+            $row['arrival_time'] = date('h:i A', strtotime($row['arrival_time']));
+            
+            // Calculate available seats
+            $row['available_seats'] = $row['seat_capacity'] - $row['booked_seats'];
+            
+            // Extract origin and destination from route_name
+            $route_parts = explode(' → ', $row['route_name']);
+            $row['origin'] = $route_parts[0] ?? $selected_origin;
+            $row['destination'] = $route_parts[1] ?? $selected_destination;
+            
+            $available_buses[] = $row;
+        }
+        
+        // Diagnostic logging for found buses
+        error_log("Number of buses found: " . count($available_buses));
+        
+        // If no buses found, log additional diagnostic information
+        if (count($available_buses) === 0) {
+            // Log all buses and their route names
+            $all_buses_query = "SELECT id, route_name, status FROM buses";
+            $all_buses_result = $conn->query($all_buses_query);
+            error_log("All Buses:");
+            while ($bus = $all_buses_result->fetch_assoc()) {
+                error_log("Bus ID: {$bus['id']}, Route Name: {$bus['route_name']}, Status: {$bus['status']}");
             }
         }
     } catch (Exception $e) {
         error_log("Error fetching buses: " . $e->getMessage());
     }
 }
-
 
 // Fetch user data (optional, for the form)
 $user_data = null;
@@ -188,7 +248,7 @@ function getBookedSeats($conn, $busId, $date) {
     if ($busId && $date) {
         try {
             $query = "SELECT seat_number FROM bookings 
-                      WHERE bus_id = ? AND booking_date = ? AND booking_status = 'confirmed'";
+                      WHERE bus_id = ? AND DATE(booking_date) = ? AND booking_status = 'confirmed'";
             $stmt = $conn->prepare($query);
             $stmt->bind_param("is", $busId, $date);
             $stmt->execute();
@@ -636,8 +696,7 @@ if ($current_bus_id > 0) {
                                                     </div>
                                                     <div class="col-md-3">
                                                         <p class="mb-0">
-                                                            <span class="badge <?php echo $bus['bus_type'] === 'Aircondition' ? 'bg-info text-dark' : 'bg-secondary'; ?> me-2">
-                                                                <?php echo $bus['bus_type'] === 'Aircondition' ? '<i class="fas fa-snowflake me-1"></i> Aircon' : '<i class="fas fa-bus me-1"></i> Regular'; ?>
+                                                            <span class="badge <?php echo $bus['bus_type'] === 'Aircondition' ? '<i class="fas fa-snowflake me-1"></i> Aircon' : '<i class="fas fa-bus me-1"></i> Regular'; ?>
                                                             </span>
                                                         </p>
                                                         <p class="mb-0 text-muted">
@@ -877,8 +936,7 @@ if ($current_bus_id > 0) {
                                 </div>
                             </div>
                         </div>
-
-                        </div>
+                    </div>
                     
                     <!-- View Bus Fleet Tab Content -->
                     <div class="tab-pane fade" id="view-fleet" role="tabpanel" aria-labelledby="view-fleet-tab">
@@ -983,14 +1041,7 @@ if ($current_bus_id > 0) {
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
-                                                        
-                    
-
 
     <!-- Footer -->
     <footer class="footer mt-5">
@@ -1168,7 +1219,7 @@ if ($current_bus_id > 0) {
                 const seatsPerRow = 4; // Default 2-2 layout
                 
                 // Always reserve 5 seats for the back row
-                const backRowSeats = 5;
+                const backRowSeats = 6;
                 const remainingSeats = totalSeats - backRowSeats;
                 const normalRows = Math.floor(remainingSeats / seatsPerRow);
                 const extraSeats = remainingSeats % seatsPerRow;
@@ -1595,4 +1646,4 @@ if ($current_bus_id > 0) {
         }
     </script>
 </body>
-</html>
+</html> 
