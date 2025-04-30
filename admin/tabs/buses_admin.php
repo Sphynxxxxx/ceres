@@ -610,7 +610,7 @@ if ($count_result && $count_result->num_rows > 0) {
         <nav id="sidebar" class="sidebar">
             <div class="sidebar-header d-flex align-items-center">
                 <i class="fas fa-bus-alt me-2 fs-4"></i>
-                <h4 class="mb-0">Admin Panel</h4>
+                <h4 class="mb-0">Admin Booking System</h4>
             </div>
             <ul class="nav flex-column">
                 <li class="nav-item">

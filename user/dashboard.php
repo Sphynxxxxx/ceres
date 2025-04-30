@@ -58,126 +58,9 @@ try {
     <title>Dashboard - ISAT-U Ceres Bus Ticket System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/user.css">
-    <style>
-        /* Base styles */
-        body {
-            margin: 0;
-            font-family: 'Inter', sans-serif;
-            background: url('assets/Ceres_Bus.JPG') no-repeat center center fixed;
-            background-size: cover;
-            min-height: 100vh;
-        }
-
-        /* Overlay for readability */
-        body::before {
-            content: "";
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.3); 
-            z-index: -1;
-        }
-
-        .container-wide {
-            max-width: 98%;
-            margin: auto;
-            padding: 1rem;
-            color: #fff;
-        }
-
-        /* Glassmorphism Cards */
-        .card {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            color: #fff;
-        }
-
-        .card-header {
-            background: #191970; !important;
-            color: white;
-            font-weight: 600;
-            text-align: center;
-        }
-
-        .feature-card .card-body {
-            text-align: center;
-            background-color: rgb(119, 118, 118);
-            
-        }
-
-        .feature-icon {
-            font-size: 3rem;
-            color: #ffb100;
-            margin-bottom: 15px;
-        }
-
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="css/user.css" rel="stylesheet">
     
-        .alert-warning {
-            background: rgba(255, 193, 7, 0.2);
-            color: #fff;
-            border: none;
-            backdrop-filter: blur(8px);
-        }
-
-        .alert-info {
-            background: rgba(23, 162, 184, 0.2);
-            color: #fff;
-            border: none;
-            backdrop-filter: blur(8px);
-        }
-
-        .list-group-item-action {
-            background: transparent;
-            color: #fff;
-            border-radius: 10px;
-        }
-
-        .list-group-item-action:hover {
-            background-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .btn-warning {
-            background-color: #ffb100;
-            border-color: #ffb100;
-            color: #000;
-            font-weight: 500;
-        }
-
-        .btn-outline-warning {
-            color: #fff;
-            border-color: #ffb100;
-            font-weight: 500;
-        }
-
-        .btn-outline-warning:hover {
-            background-color: #ffb100;
-            border-color: #ffb100;
-            color: #000;
-        }
-
-        footer.footer {
-            background: rgba(29, 53, 87, 0.6);
-            color: #fff;
-            backdrop-filter: blur(10px);
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        footer.footer address {
-            color: #ddd;
-        }
-
-        footer.footer a.text-white {
-            color: #fff !important;
-        }
-    </style>
 </head>
 <body>
     <!-- Navigation Bar -->
@@ -192,7 +75,7 @@ try {
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="index.php">Home</a>
+                        <a class="nav-link active" href="dashboard.php">Home</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="tabs/routes.php">Routes</a>
@@ -226,7 +109,7 @@ try {
     <div class="container-wide">
         <div class="row g-4">
             <!-- Sidebar -->
-            <div class="col-md-3 sidebar">
+            <div class="col-lg-3 sidebar">
                 <div class="card mb-4">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="fas fa-user-circle me-2"></i>Account Menu</h5>
@@ -242,7 +125,7 @@ try {
                             <a href="tabs/booking.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-ticket-alt me-2"></i>My Bookings
                             </a>
-                            <a href="book_ticket.php" class="list-group-item list-group-item-action">
+                            <a href="tabs/booking.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-plus-circle me-2"></i>Book New Ticket
                             </a>
                             <a href="logout.php" class="list-group-item list-group-item-action text-danger">
@@ -256,20 +139,22 @@ try {
                         <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Account Info</h5>
                     </div>
                     <div class="card-body">
-                        <div class="text-center mb-3">
-                            <div class="rounded-circle bg-light d-inline-flex justify-content-center align-items-center" style="width: 80px; height: 80px;">
-                                <i class="fas fa-user fa-2x text-secondary"></i>
+                        <div class="user-profile">
+                            <div class="user-avatar">
+                                <i class="fas fa-user fa-2x text-light"></i>
+                            </div>
+                            <div class="user-info">
+                                <p><strong>Name:</strong> <?php echo htmlspecialchars($user_name); ?></p>
+                                <p><strong>Email:</strong> <?php echo htmlspecialchars($user_email); ?></p>
+                                <p class="mb-0"><strong>Account Type:</strong> Commuter</p>
                             </div>
                         </div>
-                        <p class="mb-1"><strong>Name:</strong> <?php echo htmlspecialchars($user_name); ?></p>
-                        <p class="mb-1"><strong>Email:</strong> <?php echo htmlspecialchars($user_email); ?></p>
-                        <p class="mb-0"><strong>Account Type:</strong> Commuter</p>
                     </div>
                 </div>
             </div>
 
             <!-- Main Content Area -->
-            <div class="col-md-9">
+            <div class="col-lg-9">
                 <div class="card mb-4">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="fas fa-tachometer-alt me-2"></i>Dashboard</h5>
@@ -283,9 +168,9 @@ try {
                         <div class="row g-4">
                             <!-- Routes Card -->
                             <div class="col-md-4">
-                                <div class="feature-card h-100">
+                                <div class="feature-card card h-100">
                                     <div class="card-header">
-                                        <i class="fas fa-route"></i> Routes
+                                        <h5 class="mb-0"><i class="fas fa-route me-2"></i>Routes</h5>
                                     </div>
                                     <div class="card-body">
                                         <div class="feature-icon">
@@ -300,9 +185,9 @@ try {
 
                             <!-- Schedule Card -->
                             <div class="col-md-4">
-                                <div class="feature-card h-100">
+                                <div class="feature-card card h-100">
                                     <div class="card-header">
-                                        <i class="fas fa-calendar-alt"></i> Schedule
+                                        <h5 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>Schedule</h5>
                                     </div>
                                     <div class="card-body">
                                         <div class="feature-icon">
@@ -310,16 +195,16 @@ try {
                                         </div>
                                         <h5>Bus Schedules</h5>
                                         <p>View departure and arrival times for all Ceres bus routes.</p>
-                                        <a href="schedule.php" class="btn btn-warning w-100">Check Schedules</a>
+                                        <a href="tabs/schedule.php" class="btn btn-warning w-100">Check Schedules</a>
                                     </div>
                                 </div>
                             </div>
 
                             <!-- Booking Card -->
                             <div class="col-md-4">
-                                <div class="feature-card h-100">
+                                <div class="feature-card card h-100">
                                     <div class="card-header">
-                                        <i class="fas fa-ticket-alt"></i> Booking
+                                        <h5 class="mb-0"><i class="fas fa-ticket-alt me-2"></i>Booking</h5>
                                     </div>
                                     <div class="card-body">
                                         <div class="feature-icon">
@@ -337,9 +222,9 @@ try {
                         <div class="row g-4 mt-2">
                             <!-- Locations Card -->
                             <div class="col-md-4">
-                                <div class="feature-card h-100">
+                                <div class="feature-card card h-100">
                                     <div class="card-header">
-                                        <i class="fas fa-map-marker-alt"></i> Locations
+                                        <h5 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>Locations</h5>
                                     </div>
                                     <div class="card-body">
                                         <div class="feature-icon">
@@ -354,9 +239,9 @@ try {
 
                             <!-- Fares Card -->
                             <div class="col-md-4">
-                                <div class="feature-card h-100">
+                                <div class="feature-card card h-100">
                                     <div class="card-header">
-                                        <i class="fas fa-money-bill-wave"></i> Fares
+                                        <h5 class="mb-0"><i class="fas fa-money-bill-wave me-2"></i>Fares</h5>
                                     </div>
                                     <div class="card-body">
                                         <div class="feature-icon">
@@ -371,9 +256,9 @@ try {
 
                             <!-- Contact Card -->
                             <div class="col-md-4">
-                                <div class="feature-card h-100">
+                                <div class="feature-card card h-100">
                                     <div class="card-header">
-                                        <i class="fas fa-address-book"></i> Contact
+                                        <h5 class="mb-0"><i class="fas fa-address-book me-2"></i>Contact</h5>
                                     </div>
                                     <div class="card-body">
                                         <div class="feature-icon">
@@ -388,18 +273,18 @@ try {
                         </div>
 
                         <!-- Upcoming Trips -->
-                        <div class="card mt-4">
-                            <div class="card-header bg-light">
+                        <!--<div class="card mt-4">
+                            <div class="card-header">
                                 <h5 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>Upcoming Trips</h5>
                             </div>
-                            <div class="card-body">
-                                <div class="text-center py-4">
-                                    <i class="fas fa-bus fa-3x text-muted mb-3"></i>
+                            <div class="card-body p-0">
+                                <div class="empty-state">
+                                    <i class="fas fa-bus fa-3x mb-3"></i>
                                     <p>No upcoming trips found.</p>
                                     <a href="book_ticket.php" class="btn btn-warning">Book a Trip</a>
                                 </div>
                             </div>
-                        </div>
+                        </div> -->
 
                         <!-- Announcements -->
                         <div class="card mt-4">
@@ -422,23 +307,23 @@ try {
     </div>
 
     <!-- Footer -->
-    <footer class="footer mt-5">
+    <footer class="footer">
         <div class="container">
             <div class="row">
-                <div class="col-md-4 mb-3">
+                <div class="col-lg-4 mb-4">
                     <h5>Ceres Bus Ticket System for ISAT-U Commuters</h5>
                     <p>Providing convenient Ceres bus transportation booking for ISAT-U students, faculty, and staff commuters.</p>
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-lg-4 mb-4">
                     <h5>Quick Links</h5>
                     <ul class="list-unstyled">
-                        <li><a href="tabs/routes.php" class="text-white">Routes</a></li>
-                        <li><a href="schedule.php" class="text-white">Schedule</a></li>
-                        <li><a href="tabs/booking.php" class="text-white">Book Ticket</a></li>
-                        <li><a href="contact.php" class="text-white">Contact Us</a></li>
+                        <li><a href="tabs/routes.php" class="text-white"><i class="fas fa-route me-2"></i>Routes</a></li>
+                        <li><a href="tabs/schedule.php" class="text-white"><i class="fas fa-calendar-alt me-2"></i>Schedule</a></li>
+                        <li><a href="tabs/booking.php" class="text-white"><i class="fas fa-ticket-alt me-2"></i>Book Ticket</a></li>
+                        <li><a href="contact.php" class="text-white"><i class="fas fa-envelope me-2"></i>Contact Us</a></li>
                     </ul>
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-lg-4 mb-4">
                     <h5>Contact</h5>
                     <address>
                         <i class="fas fa-map-marker-alt me-2"></i> Ceres Terminal, Iloilo City<br>
@@ -449,12 +334,11 @@ try {
             </div>
             <hr class="bg-light">
             <div class="text-center">
-                <p>&copy; 2025 Ceres Bus Terminal - ISAT-U Commuters Ticket System. All rights reserved.</p>
+                <p class="copyright">&copy; 2025 Ceres Bus Terminal - ISAT-U Commuters Ticket System. All rights reserved.</p>
             </div>
         </div>
     </footer>
 
-    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

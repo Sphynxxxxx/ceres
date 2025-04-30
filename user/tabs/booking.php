@@ -280,8 +280,9 @@ if ($current_bus_id > 0) {
     <title>Book Ticket - ISAT-U Ceres Bus Ticket System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
-    <link rel="stylesheet" href="css/user.css">
+    <link rel="stylesheet" href="../css/navfot.css">
     <style>
+        
         .seat {
             width: 40px;
             height: 40px;
@@ -499,8 +500,8 @@ if ($current_bus_id > 0) {
     </style>
 </head>
 <body>
-    <!-- Navigation Bar -->
-    <nav class="navbar navbar-expand-lg navbar-dark">
+     <!-- Navigation Bar -->
+     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand" href="index.php">
                 <i class="fas fa-bus-alt me-2"></i>Ceres Bus for ISAT-U Commuters
@@ -511,10 +512,10 @@ if ($current_bus_id > 0) {
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="index.php">Home</a>
+                        <a class="nav-link" href="../dashboard.php">Home</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="tabs/routes.php">Routes</a>
+                        <a class="nav-link" href="routes.php">Routes</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="schedule.php">Schedule</a>
@@ -1041,6 +1042,10 @@ if ($current_bus_id > 0) {
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Footer -->
@@ -1054,7 +1059,7 @@ if ($current_bus_id > 0) {
                 <div class="col-md-4 mb-3">
                     <h5>Quick Links</h5>
                     <ul class="list-unstyled">
-                        <li><a href="tabs/routes.php" class="text-white">Routes</a></li>
+                        <li><a href="routes.php" class="text-white">Routes</a></li>
                         <li><a href="schedule.php" class="text-white">Schedule</a></li>
                         <li><a href="booking.php" class="text-white">Book Ticket</a></li>
                         <li><a href="contact.php" class="text-white">Contact Us</a></li>

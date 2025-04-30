@@ -133,7 +133,7 @@ try {
         <nav id="sidebar" class="sidebar">
             <div class="sidebar-header d-flex align-items-center">
                 <i class="fas fa-bus-alt me-2 fs-4"></i>
-                <h4 class="mb-0">Admin Panel</h4>
+                <h4 class="mb-0">Admin Booking System</h4>
             </div>
             <ul class="nav flex-column">
                 <li class="nav-item">
@@ -188,12 +188,6 @@ try {
                     <a class="nav-link" href="settings_admin.php">
                         <i class="fas fa-cog"></i>
                         <span>Settings</span>
-                    </a>
-                </li>
-                <li class="nav-item mt-5">
-                    <a class="nav-link text-danger" href="index.php">
-                        <i class="fas fa-sign-out-alt"></i>
-                        <span>Exit to Main Site</span>
                     </a>
                 </li>
             </ul>

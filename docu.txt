@@ -1,1 +1,11 @@
-cpnj axtl trss bgtb
+NEXT UPDATE
+
+Update the Add New Route (routes_admin.php)
+that add a trip like drop box
+ex. 1st trip should 3:30 
+
+And update on schedule.php
+the Departs will display the trip and the Arrives will calculated the time from estimated time
+
+And update the booking.php
+the Travel Time will display the Departs time 
