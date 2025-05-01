@@ -128,13 +128,7 @@ try {
     $error_message = "Error fetching bookings: " . $e->getMessage();
 }
 
-// Notification count for display in header (demo data)
-$notification_count = 3;
-$notifications = [
-    ['message' => 'New booking received', 'time' => '5 minutes ago'],
-    ['message' => 'Bus schedule updated', 'time' => '1 hour ago'],
-    ['message' => 'New user registered', 'time' => '3 hours ago']
-];
+
 ?>
 
 <!DOCTYPE html>
@@ -226,21 +220,9 @@ $notifications = [
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="reports_admin.php">
-                        <i class="fas fa-chart-bar"></i>
-                        <span>Reports</span>
-                    </a>
-                </li>
-                <li class="nav-item">
                     <a class="nav-link" href="announcements_admin.php">
                         <i class="fas fa-bullhorn"></i>
                         <span>Announcements</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="settings_admin.php">
-                        <i class="fas fa-cog"></i>
-                        <span>Settings</span>
                     </a>
                 </li>
             </ul>
@@ -266,9 +248,6 @@ $notifications = [
                                 </button>
                             </div>
                         </form>
-                        <ul class="navbar-nav ms-3">
-                            <!-- Notification and profile dropdowns remain the same as in schedules_admin.php -->
-                        </ul>
                     </div>
                 </div>
             </nav>
@@ -562,6 +541,16 @@ $notifications = [
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
+        // Toggle sidebar
+        document.getElementById('sidebarToggle').addEventListener('click', function() {
+            document.body.classList.toggle('collapsed-sidebar');
+        });
+
+        // Enable tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
         // Update Booking Status Modal Handling
         const updateBookingModal = document.getElementById('updateBookingModal');
         updateBookingModal.addEventListener('show.bs.modal', function (event) {

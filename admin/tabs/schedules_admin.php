@@ -187,8 +187,7 @@ $notifications = [
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="../css/admin.css" rel="stylesheet">
-    
+    <link href="../css/admin.css" rel="stylesheet">   
     <style>
         .card-table {
             border-radius: 10px;
@@ -322,21 +321,9 @@ $notifications = [
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="reports_admin.php">
-                        <i class="fas fa-chart-bar"></i>
-                        <span>Reports</span>
-                    </a>
-                </li>
-                <li class="nav-item">
                     <a class="nav-link" href="announcements_admin.php">
                         <i class="fas fa-bullhorn"></i>
                         <span>Announcements</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="settings_admin.php">
-                        <i class="fas fa-cog"></i>
-                        <span>Settings</span>
                     </a>
                 </li>
             </ul>
@@ -359,40 +346,6 @@ $notifications = [
                                 </button>
                             </div>
                         </form>
-                        <ul class="navbar-nav ms-3">
-                            <li class="nav-item dropdown">
-                                <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="fas fa-bell"></i>
-                                    <?php if ($notification_count > 0): ?>
-                                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"><?php echo $notification_count; ?></span>
-                                    <?php endif; ?>
-                                </a>
-                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
-                                    <li><h6 class="dropdown-header">Notifications</h6></li>
-                                    <?php if (count($notifications) > 0): ?>
-                                        <?php foreach ($notifications as $notification): ?>
-                                        <li><a class="dropdown-item" href="#"><?php echo $notification['message']; ?> <small class="text-muted d-block"><?php echo $notification['time']; ?></small></a></li>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <li><span class="dropdown-item text-muted">No new notifications</span></li>
-                                    <?php endif; ?>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="#">See all notifications</a></li>
-                                </ul>
-                            </li>
-                            <li class="nav-item dropdown profile-section">
-                                <a class="nav-link dropdown-toggle" href="#" id="profileDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="fas fa-user-circle"></i>
-                                </a>
-                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
-                                    <li><h6 class="dropdown-header">Admin User</h6></li>
-                                    <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-                                    <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="../../index.php"><i class="fas fa-sign-out-alt me-2"></i>Exit Admin</a></li>
-                                </ul>
-                            </li>
-                        </ul>
                     </div>
                 </div>
             </nav>
@@ -903,10 +856,15 @@ $notifications = [
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
-        // Add sidebar toggle functionality
+        // Toggle sidebar
         document.getElementById('sidebarToggle').addEventListener('click', function() {
-            document.getElementById('sidebar').classList.toggle('collapsed');
-            document.querySelector('.content').classList.toggle('expanded');
+            document.body.classList.toggle('collapsed-sidebar');
+        });
+
+        // Enable tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
         });
         
         // Add event listeners

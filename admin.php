@@ -170,26 +170,14 @@ $notification_count = count($notifications);
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" href="admin/tabs/users_admin.php">
-                        <i class="fas fa-users me-2"></i>
+                        <i class="fas fa-users"></i>
                         <span>Users</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin/tabs/reports_admin.php">
-                        <i class="fas fa-chart-bar"></i>
-                        <span>Reports</span>
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" href="admin/tabs/announcements_admin.php">
                         <i class="fas fa-bullhorn"></i>
                         <span>Announcements</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="admin/tabs/settings-section">
-                        <i class="fas fa-cog"></i>
-                        <span>Settings</span>
                     </a>
                 </li>
             </ul>
@@ -203,47 +191,6 @@ $notification_count = count($notifications);
                     <button id="sidebarToggle" class="btn">
                         <i class="fas fa-bars"></i>
                     </button>
-                    <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                        <form class="d-flex ms-auto">
-                            <div class="input-group">
-                                <input class="form-control" type="search" placeholder="Search" aria-label="Search">
-                                <button class="btn btn-outline-primary" type="submit">
-                                    <i class="fas fa-search"></i>
-                                </button>
-                            </div>
-                        </form>
-                        <ul class="navbar-nav ms-3">
-                            <li class="nav-item dropdown">
-                                <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="fas fa-bell"></i>
-                                    <?php if ($notification_count > 0): ?>
-                                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"><?php echo $notification_count; ?></span>
-                                    <?php endif; ?>
-                                </a>
-                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
-                                    <li><h6 class="dropdown-header">Notifications</h6></li>
-                                    <?php if (count($notifications) > 0): ?>
-                                        <?php foreach ($notifications as $notification): ?>
-                                        <li><a class="dropdown-item" href="#"><?php echo $notification['message']; ?> <small class="text-muted d-block"><?php echo $notification['time']; ?></small></a></li>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <li><span class="dropdown-item text-muted">No new notifications</span></li>
-                                    <?php endif; ?>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="#">See all notifications</a></li>
-                                </ul>
-                            </li>
-                            <li class="nav-item dropdown profile-section">
-                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
-                                    <li><h6 class="dropdown-header">Admin User</h6></li>
-                                    <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-                                    <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="index.php"><i class="fas fa-sign-out-alt me-2"></i>Exit Admin</a></li>
-                                </ul>
-                            </li>
-                        </ul>
-                    </div>
                 </div>
             </nav>
 

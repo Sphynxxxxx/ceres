@@ -650,21 +650,9 @@ if ($count_result && $count_result->num_rows > 0) {
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="reports_admin.php">
-                        <i class="fas fa-chart-bar"></i>
-                        <span>Reports</span>
-                    </a>
-                </li>
-                <li class="nav-item">
                     <a class="nav-link" href="announcements_admin.php">
                         <i class="fas fa-bullhorn"></i>
                         <span>Announcements</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="settings_admin.php">
-                        <i class="fas fa-cog"></i>
-                        <span>Settings</span>
                     </a>
                 </li>
             </ul>
@@ -687,20 +675,6 @@ if ($count_result && $count_result->num_rows > 0) {
                                 </button>
                             </div>
                         </form>
-                        <ul class="navbar-nav ms-3">
-                            <li class="nav-item dropdown profile-section">
-                                <a class="nav-link dropdown-toggle" href="#" id="profileDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <img src="https://via.placeholder.com/40" alt="Admin">
-                                </a>
-                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
-                                    <li><h6 class="dropdown-header">Admin User</h6></li>
-                                    <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-                                    <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="index.php"><i class="fas fa-sign-out-alt me-2"></i>Exit Admin</a></li>
-                                </ul>
-                            </li>
-                        </ul>
                     </div>
                 </div>
             </nav>
