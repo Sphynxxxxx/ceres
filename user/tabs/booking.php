@@ -41,6 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
     $bus_id = isset($_POST['bus_id']) ? intval($_POST['bus_id']) : 0;
     $seat_number = isset($_POST['seat_number']) ? intval($_POST['seat_number']) : 0;
     $booking_date = isset($_POST['booking_date']) ? $_POST['booking_date'] : '';
+    $payment_method = isset($_POST['payment_method']) ? $_POST['payment_method'] : '';
+    $discount_type = isset($_POST['discount_type']) ? $_POST['discount_type'] : 'regular';
     
     // Validation
     $errors = [];
@@ -53,16 +55,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
     if (empty($booking_date)) {
         $errors[] = "Please select a travel date";
     }
+    if (empty($payment_method)) {
+        $errors[] = "Please select a payment method";
+    }
+    
+    // Validate payment proof for online payment methods
+    $payment_proof_path = null;
+    if (($payment_method === 'gcash' || $payment_method === 'paymaya') && 
+        (!isset($_FILES[$payment_method . '_payment_proof']) || $_FILES[$payment_method . '_payment_proof']['error'] !== UPLOAD_ERR_OK)) {
+        $errors[] = "Please upload payment proof for " . strtoupper($payment_method);
+    }
+    
+    // Validate discount ID proof if discount is selected
+    $discount_id_path = null;
+    if ($discount_type !== 'regular' && 
+        (!isset($_FILES['discount_id_proof']) || $_FILES['discount_id_proof']['error'] !== UPLOAD_ERR_OK)) {
+        $errors[] = "Please upload valid ID for " . ucfirst($discount_type) . " discount verification";
+    }
     
     if (empty($errors)) {
         try {
-            // First, make sure the booking_reference column exists
+            // First, make sure the necessary columns exist
             try {
-                $alter_query = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS booking_reference VARCHAR(20) DEFAULT NULL";
-                $conn->query($alter_query);
+                // Add discount related columns if they don't exist
+                $alter_discount_type = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discount_type VARCHAR(20) DEFAULT 'regular'";
+                $conn->query($alter_discount_type);
+                
+                $alter_discount_id = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discount_id_proof VARCHAR(255) DEFAULT NULL";
+                $conn->query($alter_discount_id);
+                
+                $alter_discount_verified = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discount_verified TINYINT(1) DEFAULT 0";
+                $conn->query($alter_discount_verified);
+                
             } catch (Exception $e) {
-                error_log("Error adding booking_reference column: " . $e->getMessage());
+                error_log("Error adding discount columns: " . $e->getMessage());
                 // Continue with the booking process anyway
+            }
+            
+            // Process payment proof upload if applicable
+            if ($payment_method === 'gcash' || $payment_method === 'paymaya') {
+                $payment_proof_path = processPaymentProofUpload($payment_method);
+                
+                if (!$payment_proof_path) {
+                    throw new Exception("Failed to upload payment proof. Please try again.");
+                }
+            }
+            
+            // Process discount ID upload if applicable
+            if ($discount_type !== 'regular') {
+                $discount_id_path = processDiscountIDUpload($discount_type);
+                
+                if (!$discount_id_path) {
+                    throw new Exception("Failed to upload discount ID proof. Please try again.");
+                }
             }
             
             // Check if seat is already booked
@@ -78,25 +123,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
                 // Begin a transaction to ensure all operations succeed or fail together
                 $conn->begin_transaction();
                 
-                // Insert booking
-                $insert_query = "INSERT INTO bookings (bus_id, user_id, seat_number, booking_date, booking_status, created_at) 
-                                VALUES (?, ?, ?, ?, 'confirmed', NOW())";
+                // Generate booking reference
+                $booking_id_temp = $conn->insert_id + 1; // Estimate the next ID
+                $booking_reference = 'BK-' . date('Ymd') . '-' . $booking_id_temp;
+                
+                // Get trip number for this bus
+                $trip_number = null;
+                $trip_query = "SELECT trip_number FROM schedules WHERE bus_id = ? LIMIT 1";
+                $trip_stmt = $conn->prepare($trip_query);
+                $trip_stmt->bind_param("i", $bus_id);
+                $trip_stmt->execute();
+                $trip_result = $trip_stmt->get_result();
+                if ($trip_result && $trip_result->num_rows > 0) {
+                    $trip_data = $trip_result->fetch_assoc();
+                    $trip_number = $trip_data['trip_number'];
+                }
+                
+                // Set payment status based on payment method
+                $payment_status = ($payment_method === 'counter') ? 'pending' : 
+                                 (($payment_method === 'gcash' || $payment_method === 'paymaya') ? 'awaiting_verification' : 'pending');
+                
+                // Set payment proof status
+                $payment_proof_status = ($payment_method === 'counter') ? 'not_required' : 
+                                      ($payment_proof_path ? 'uploaded' : 'pending');
+                
+                // Get current timestamp for payment proof upload
+                $current_timestamp = date('Y-m-d H:i:s');
+                
+                // Insert booking with payment information, proof, and discount details
+                $insert_query = "INSERT INTO bookings (bus_id, user_id, seat_number, booking_date, booking_status, 
+                                created_at, booking_reference, trip_number, payment_method, payment_status, 
+                                payment_proof, payment_proof_status, payment_proof_timestamp,
+                                discount_type, discount_id_proof, discount_verified) 
+                                VALUES (?, ?, ?, ?, 'confirmed', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
+
                 $insert_stmt = $conn->prepare($insert_query);
-                $insert_stmt->bind_param("iiis", $bus_id, $user_id, $seat_number, $booking_date);
+                $insert_stmt->bind_param("iiissssssssss", $bus_id, $user_id, $seat_number, $booking_date, 
+                                        $booking_reference, $trip_number, $payment_method, $payment_status, 
+                                        $payment_proof_path, $payment_proof_status, $current_timestamp,
+                                        $discount_type, $discount_id_path);
                 
                 if ($insert_stmt->execute()) {
                     $booking_id = $conn->insert_id;
                     
-                    // Generate booking reference
+                    // Update the booking reference with actual ID
                     $booking_reference = 'BK-' . date('Ymd') . '-' . $booking_id;
-                    
-                    // Update the booking with the reference number
                     $update_query = "UPDATE bookings SET booking_reference = ? WHERE id = ?";
                     $update_stmt = $conn->prepare($update_query);
                     $update_stmt->bind_param("si", $booking_reference, $booking_id);
                     
                     if (!$update_stmt->execute()) {
-                        // If update fails, log the error but don't fail the whole booking
                         error_log("Failed to update booking reference: " . $update_stmt->error);
                     }
                     
@@ -125,6 +201,148 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
         }
     } else {
         $booking_error = implode(", ", $errors);
+    }
+}
+
+/**
+ * Process payment proof image upload
+ * 
+ * @param string $payment_method The payment method (gcash or paymaya)
+ * @return string|null The path to the uploaded image or null on failure
+ */
+function processPaymentProofUpload($payment_method) {
+    try {
+        // Check if file was uploaded
+        if (!isset($_FILES[$payment_method . '_payment_proof']) || 
+            $_FILES[$payment_method . '_payment_proof']['error'] !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        
+        $file = $_FILES[$payment_method . '_payment_proof'];
+        
+        // Create upload directory if it doesn't exist
+        $upload_dir = __DIR__ . '/../../uploads/payment_proofs/';
+        
+        if (!file_exists($upload_dir)) {
+            mkdir($upload_dir, 0755, true);
+        }
+        
+        // Validate file type
+        $file_info = getimagesize($file['tmp_name']);
+        if ($file_info === false || 
+            !in_array($file_info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF])) {
+            return null;
+        }
+        
+        // Validate file size (max 5MB)
+        if ($file['size'] > 5 * 1024 * 1024) {
+            return null;
+        }
+        
+        // Generate a unique filename
+        $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $unique_filename = $payment_method . '_' . time() . '_' . uniqid() . '.' . $file_ext;
+        $upload_path = $upload_dir . $unique_filename;
+        
+        // Move the uploaded file
+        if (move_uploaded_file($file['tmp_name'], $upload_path)) {
+            // Return the relative path to store in database
+            return 'uploads/payment_proofs/' . $unique_filename;
+        }
+        
+        return null;
+    } catch (Exception $e) {
+        error_log("Error processing payment proof upload: " . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * Process discount ID image upload
+ * 
+ * @param string $discount_type The discount type (student, senior, pwd)
+ * @return string|null The path to the uploaded image or null on failure
+ */
+function processDiscountIDUpload($discount_type) {
+    try {
+        // Debug - log the received files
+        error_log("Discount ID upload - FILES: " . print_r($_FILES, true));
+        
+        // Check if file was uploaded
+        if (!isset($_FILES['discount_id_proof']) || 
+            $_FILES['discount_id_proof']['error'] !== UPLOAD_ERR_OK) {
+            error_log("Discount ID file not uploaded or has error: " . 
+                      (isset($_FILES['discount_id_proof']) ? $_FILES['discount_id_proof']['error'] : 'Not set'));
+            return null;
+        }
+        
+        $file = $_FILES['discount_id_proof'];
+        
+        // Create upload directory if it doesn't exist
+        $upload_dir = __DIR__ . '/../../uploads/discount_ids/';
+        error_log("Upload directory: " . $upload_dir);
+        
+        if (!file_exists($upload_dir)) {
+            $mkdir_result = mkdir($upload_dir, 0755, true);
+            error_log('Created discount IDs directory: ' . ($mkdir_result ? 'success' : 'failed'));
+            
+            if (!$mkdir_result) {
+                error_log('mkdir error: ' . error_get_last()['message']);
+                return null;
+            }
+        }
+
+        if (!is_writable($upload_dir)) {
+            error_log('Warning: Discount IDs directory is not writable: ' . $upload_dir);
+            // Try to make it writable
+            chmod($upload_dir, 0755);
+            error_log('After chmod, directory is writable: ' . (is_writable($upload_dir) ? 'yes' : 'no'));
+            
+            if (!is_writable($upload_dir)) {
+                error_log('Directory still not writable after chmod');
+                return null;
+            }
+        }
+        
+        // Validate file type
+        $file_info = getimagesize($file['tmp_name']);
+        if ($file_info === false || 
+            !in_array($file_info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF])) {
+            error_log("Invalid file type: " . (isset($file_info[2]) ? $file_info[2] : 'unknown'));
+            return null;
+        }
+        
+        // Validate file size (max 5MB)
+        if ($file['size'] > 5 * 1024 * 1024) {
+            error_log("File too large: " . $file['size'] . " bytes");
+            return null;
+        }
+        
+        // Generate a unique filename
+        $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $unique_filename = $discount_type . '_id_' . time() . '_' . uniqid() . '.' . $file_ext;
+        $upload_path = $upload_dir . $unique_filename;
+        
+        // Move the uploaded file
+        $move_result = move_uploaded_file($file['tmp_name'], $upload_path);
+        error_log("Moving file result: " . ($move_result ? 'success' : 'failed'));
+        
+        if ($move_result) {
+            // Return the relative path to store in database
+            $relative_path = 'uploads/discount_ids/' . $unique_filename;
+            error_log("File upload successful, returning path: " . $relative_path);
+            return $relative_path;
+        } else {
+            $error = error_get_last();
+            error_log("Move error: " . ($error ? $error['message'] : 'Unknown error'));
+            error_log("Source file exists: " . (file_exists($file['tmp_name']) ? 'yes' : 'no'));
+            error_log("Source file readable: " . (is_readable($file['tmp_name']) ? 'yes' : 'no'));
+            error_log("Destination path: " . $upload_path);
+            return null;
+        }
+    } catch (Exception $e) {
+        error_log("Error processing discount ID upload: " . $e->getMessage());
+        return null;
     }
 }
 
@@ -182,11 +400,10 @@ if (!empty($selected_origin) && !empty($selected_destination)) {
         // Updated query to use route_name from buses table
         $buses_query = "SELECT b.id, b.bus_type, b.seat_capacity, b.plate_number, 
                 b.driver_name, b.conductor_name, b.status, b.route_name,
-                s.departure_time, 
-                s.arrival_time,
+                s.departure_time, s.arrival_time, s.trip_number, 
                 r.fare as fare_amount,
                 (SELECT COUNT(*) FROM bookings 
-                 WHERE bus_id = b.id AND DATE(booking_date) = ? AND booking_status = 'confirmed') as booked_seats
+                WHERE bus_id = b.id AND DATE(booking_date) = ? AND booking_status = 'confirmed') as booked_seats
                 FROM buses b
                 LEFT JOIN routes r ON b.route_name LIKE CONCAT(r.origin, ' → ', r.destination)
                 LEFT JOIN schedules s ON b.id = s.bus_id
@@ -296,6 +513,7 @@ if ($current_bus_id > 0) {
     $booked_seats = getBookedSeats($conn, $current_bus_id, $selected_date);
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -521,6 +739,94 @@ if ($current_bus_id > 0) {
             font-weight: 500;
             padding: 5px 10px;
         }
+        
+        /* Payment Method Styles */
+        .payment-methods {
+            margin-top: 20px;
+        }
+        
+        .payment-method-option {
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+        
+        .payment-method-option:hover {
+            border-color: #adb5bd;
+            background-color: #f8f9fa;
+        }
+        
+        .payment-method-option.selected {
+            border-color: #007bff;
+            background-color: #e7f1ff;
+            box-shadow: 0 0 10px rgba(0,123,255,0.2);
+        }
+        
+        .payment-method-option .payment-radio {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+        }
+        
+        .payment-method-logo {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #fff;
+            border-radius: 8px;
+            margin-right: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .payment-method-logo i {
+            font-size: 28px;
+            color: #007bff;
+        }
+        
+        .payment-method-info {
+            flex: 1;
+        }
+        
+        .payment-instructions {
+            font-size: 14px;
+            color: #6c757d;
+            margin-top: 10px;
+            display: none;
+        }
+        
+        .payment-method-option.selected .payment-instructions {
+            display: block;
+        }
+
+        .discount-options {
+            border-left: 4px solid #0dcaf0;
+            padding-left: 15px;
+        }
+
+        .fare-updated {
+            animation: highlight 2s;
+        }
+
+        @keyframes highlight {
+            0% { background-color: #fff; }
+            15% { background-color: rgba(25, 135, 84, 0.2); }
+            100% { background-color: #fff; }
+        }
+
+        #id-upload-section {
+            transition: all 0.3s ease;
+        }
+
+        .form-check-input.discount-option:checked + .form-check-label {
+            font-weight: bold;
+            color: #0d6efd;
+        }
     </style>
 </head>
 <body>
@@ -593,22 +899,28 @@ if ($current_bus_id > 0) {
                         <div class="card mb-4">
                             <div class="card-body booking-steps">
                                 <div class="row">
-                                    <div class="col-md-4">
+                                    <div class="col-md-3">
                                         <div class="step active" id="step1">
                                             <span class="step-number">1</span>
                                             <span class="step-text">Select Route & Date</span>
                                         </div>
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-3">
                                         <div class="step" id="step2">
                                             <span class="step-number">2</span>
                                             <span class="step-text">Choose Bus & Schedule</span>
                                         </div>
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-3">
                                         <div class="step" id="step3">
                                             <span class="step-number">3</span>
-                                            <span class="step-text">Select Seat & Confirm</span>
+                                            <span class="step-text">Select Seat</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="step" id="step4">
+                                            <span class="step-number">4</span>
+                                            <span class="step-text">Payment Method</span>
                                         </div>
                                     </div>
                                 </div>
@@ -689,7 +1001,8 @@ if ($current_bus_id > 0) {
                                                 data-departure="<?php echo $bus['departure_time']; ?>" 
                                                 data-arrival="<?php echo $bus['arrival_time']; ?>"
                                                 data-booked="<?php echo $bus['booked_seats']; ?>"
-                                                data-available="<?php echo $bus['available_seats']; ?>">
+                                                data-available="<?php echo $bus['available_seats']; ?>"
+                                                data-trip-number="<?php echo $bus['trip_number']; ?>">
                                                 <div class="row align-items-center">
                                                     <div class="col-md-1 text-center">
                                                         <div class="bus-icon">
@@ -703,11 +1016,23 @@ if ($current_bus_id > 0) {
                                                                 <i class="fas fa-clock me-1"></i><?php echo $bus['departure_time']; ?> - <?php echo $bus['arrival_time']; ?>
                                                             </small>
                                                         </p>
+                                                        <?php if (!empty($bus['trip_number'])): ?>
+                                                        <span class="badge bg-info mt-1">
+                                                            <i class="fas fa-route me-1"></i><?php echo htmlspecialchars($bus['trip_number']); ?>
+                                                        </span>
+                                                        <?php endif; ?>
                                                     </div>
                                                     <div class="col-md-3">
                                                         <p class="mb-0">
-                                                            <span class="badge <?php echo $bus['bus_type'] === 'Aircondition' ? '<i class="fas fa-snowflake me-1"></i> Aircon' : '<i class="fas fa-bus me-1"></i> Regular'; ?>
+                                                            <?php if ($bus['bus_type'] === 'Aircondition'): ?>
+                                                            <span class="badge bg-info text-dark">
+                                                                <i class="fas fa-snowflake me-1"></i> Aircon
                                                             </span>
+                                                            <?php else: ?>
+                                                            <span class="badge bg-secondary">
+                                                                <i class="fas fa-bus me-1"></i> Regular
+                                                            </span>
+                                                            <?php endif; ?>
                                                         </p>
                                                         <p class="mb-0 text-muted">
                                                             <small>
@@ -859,6 +1184,278 @@ if ($current_bus_id > 0) {
                                         </div>
                                     </div>
                                 </div>
+                                
+                                <!-- Payment Methods Selection (Step 4) -->
+                                <div class="card mb-4" id="payment-selection" style="display: none;">
+                                    <div class="card-header bg-primary text-white">
+                                        <h5 class="mb-0"><i class="fas fa-credit-card me-2"></i>Select Payment Method</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <!-- Discount Selection Section - NEW -->
+                                        <div class="card mb-4">
+                                            <div class="card-header bg-info text-white">
+                                                <h5 class="mb-0"><i class="fas fa-tag me-2"></i>Discount Options</h5>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="alert alert-info mb-3">
+                                                    <i class="fas fa-info-circle me-2"></i>If eligible, you can select a discount category. Valid ID is required for verification.
+                                                </div>
+                                                
+                                                <div class="discount-options mb-3">
+                                                    <div class="form-check mb-2">
+                                                        <input class="form-check-input discount-option" type="radio" name="discount_type" id="discount_regular" value="regular" checked>
+                                                        <label class="form-check-label" for="discount_regular">
+                                                            Regular Fare (No Discount)
+                                                        </label>
+                                                    </div>
+                                                    <div class="form-check mb-2">
+                                                        <input class="form-check-input discount-option" type="radio" name="discount_type" id="discount_student" value="student">
+                                                        <label class="form-check-label" for="discount_student">
+                                                            Student (20% Off) - Must upload Student ID
+                                                        </label>
+                                                    </div>
+                                                    <div class="form-check mb-2">
+                                                        <input class="form-check-input discount-option" type="radio" name="discount_type" id="discount_senior" value="senior">
+                                                        <label class="form-check-label" for="discount_senior">
+                                                            Senior Citizen (20% Off) - Must upload Senior Citizen ID
+                                                        </label>
+                                                    </div>
+                                                    <div class="form-check mb-2">
+                                                        <input class="form-check-input discount-option" type="radio" name="discount_type" id="discount_pwd" value="pwd">
+                                                        <label class="form-check-label" for="discount_pwd">
+                                                            PWD (20% Off) - Must upload PWD ID
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- ID Upload Section -->
+                                                <div id="id-upload-section" style="display: none;">
+                                                    <div class="card card-body bg-light mb-3">
+                                                        <h6 class="mb-3"><i class="fas fa-id-card me-2"></i>Upload Valid ID for Verification</h6>
+                                                        <div class="mb-3">
+                                                            <label for="discount_id_proof" class="form-label">Upload your ID (Required for discount)</label>
+                                                            <input class="form-control" type="file" id="discount_id_proof" name="discount_id_proof" accept="image/*">
+                                                            <div class="form-text">Valid ID must clearly show your name, photo, and ID type. Max 5MB (JPG, PNG)</div>
+                                                        </div>
+                                                        <div id="id-preview" class="mt-2 d-none">
+                                                            <div class="card">
+                                                                <div class="card-body p-2">
+                                                                    <div class="d-flex align-items-center">
+                                                                        <img src="" alt="ID preview" class="img-thumbnail me-2" style="max-width: 100px; max-height: 100px;">
+                                                                        <div>
+                                                                            <p class="mb-1 small id-preview-filename">filename.jpg</p>
+                                                                            <div class="d-flex">
+                                                                                <button type="button" class="btn btn-sm btn-danger remove-id-preview me-2">
+                                                                                    <i class="fas fa-times me-1"></i>Remove
+                                                                                </button>
+                                                                                <button type="button" class="btn btn-sm btn-primary change-id-preview">
+                                                                                    <i class="fas fa-exchange-alt me-1"></i>Change
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="alert alert-info mb-4">
+                                            <i class="fas fa-info-circle me-2"></i>Please select your preferred payment method below.
+                                        </div>
+                                        
+                                        <div class="payment-methods">
+                                            <!-- Over the Counter Payment -->
+                                            <div class="payment-method-option d-flex" data-payment="counter">
+                                                <div class="payment-method-logo">
+                                                    <i class="fas fa-money-bill-wave"></i>
+                                                </div>
+                                                <div class="payment-method-info">
+                                                    <h5 class="mb-1">Pay Over the Counter</h5>
+                                                    <p class="mb-2 text-muted">Pay directly at the bus terminal before your trip</p>
+                                                    <div class="payment-instructions">
+                                                        <div class="card card-body bg-light">
+                                                            <p class="mb-0"><strong>How it works:</strong></p>
+                                                            <ol class="mb-0 ps-3">
+                                                                <li>Arrive at the terminal at least 30 minutes before departure</li>
+                                                                <li>Present your booking reference at the counter</li>
+                                                                <li>Pay the exact amount in cash</li>
+                                                                <li>Receive your physical ticket and boarding pass</li>
+                                                            </ol>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="payment-radio form-check">
+                                                    <input class="form-check-input" type="radio" name="payment_method" id="payment_counter" value="counter">
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- GCash Payment with Proof Upload -->
+                                            <div class="payment-method-option d-flex" data-payment="gcash">
+                                                <div class="payment-method-logo">
+                                                    <img src="../assets/GCash_logo.png" alt="GCash Logo" class="img-fluid" style="width: 60px; height: auto;">
+                                                    <i class="fas fa-mobile-alt d-none"></i>
+                                                </div>
+                                                <div class="payment-method-info">
+                                                    <h5 class="mb-1">GCash</h5>
+                                                    <p class="mb-2 text-muted">Pay instantly using your GCash account</p>
+                                                    <div class="payment-instructions">
+                                                        <div class="card card-body bg-light">
+                                                            <div class="row">
+                                                                <div class="col-md-7">
+                                                                    <p class="mb-2"><strong>How to pay via GCash:</strong></p>
+                                                                    <ol class="mb-3 ps-3">
+                                                                        <li>Open your GCash app</li>
+                                                                        <li>Tap on "Scan QR Code"</li>
+                                                                        <li>Scan the QR code shown here</li>
+                                                                        <li>Enter the exact amount: ₱<span class="fare-amount">0.00</span></li>
+                                                                        <li>Add your booking reference in the notes</li>
+                                                                        <li>Confirm the payment</li>
+                                                                        <li>Take a screenshot of your payment receipt</li>
+                                                                        <li>Upload the screenshot below</li>
+                                                                        <li>Make sure the admin has verified your ticket on the My Bookings page before presenting it to the staff</li>
+                                                                    </ol>
+                                                                    <div class="alert alert-info small mb-2">
+                                                                        <i class="fas fa-info-circle me-1"></i> Payment will be verified by our staff after you upload the receipt.
+                                                                    </div>
+                                                                    
+                                                                    <!-- Payment Proof Upload Section -->
+                                                                    <div class="payment-proof-upload mt-3">
+                                                                        <label for="gcash_payment_proof" class="form-label"><strong>Upload Payment Screenshot:</strong></label>
+                                                                        <input class="form-control form-control-sm" id="gcash_payment_proof" name="gcash_payment_proof" type="file" accept="image/*">
+                                                                        <div class="form-text">Supported formats: JPG, PNG (Max 5MB)</div>
+                                                                        <div class="payment-preview mt-2 d-none">
+                                                                            <div class="card">
+                                                                                <div class="card-body p-2">
+                                                                                    <div class="d-flex align-items-center">
+                                                                                        <img src="" alt="Payment preview" class="img-thumbnail me-2" style="max-width: 100px; max-height: 100px;">
+                                                                                        <div>
+                                                                                            <p class="mb-1 small preview-filename">filename.jpg</p>
+                                                                                            <div class="d-flex">
+                                                                                                <button type="button" class="btn btn-sm btn-danger remove-preview me-2">
+                                                                                                    <i class="fas fa-times me-1"></i>Remove
+                                                                                                </button>
+                                                                                                <button type="button" class="btn btn-sm btn-primary change-preview">
+                                                                                                    <i class="fas fa-exchange-alt me-1"></i>Change
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="col-md-5 text-center">
+                                                                    <div class="qr-code-container p-2 bg-white border rounded mb-2">
+                                                                        <img src="../assets/QRgcash.jpg" alt="GCash QR Code" class="img-fluid mb-2" style="max-width: 150px;">
+                                                                        <!-- Fallback if image unavailable -->
+                                                                        <div class="qr-fallback d-none border border-primary p-4 rounded bg-light text-center mb-2" style="width: 150px; height: 150px; margin: 0 auto;">
+                                                                            <i class="fas fa-qrcode fa-5x text-primary mb-2"></i>
+                                                                            <p class="small mb-0">GCash QR Code</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <p class="small text-muted mb-0">ISAT-U Ceres Bus Ticketing</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="payment-radio form-check">
+                                                    <input class="form-check-input" type="radio" name="payment_method" id="payment_gcash" value="gcash">
+                                                </div>
+                                            </div>
+
+                                            <!-- PayMaya Payment with Proof Upload -->
+                                            <div class="payment-method-option d-flex" data-payment="paymaya">
+                                                <div class="payment-method-logo">
+                                                    <img src="../assets/paymaya_icon.jpeg" alt="PayMaya Logo" class="img-fluid" style="width: 60px; height: auto;">
+                                                    <!-- Fallback icon if image is not available -->
+                                                    <i class="fas fa-credit-card d-none"></i>
+                                                </div>
+                                                <div class="payment-method-info">
+                                                    <h5 class="mb-1">PayMaya</h5>
+                                                    <p class="mb-2 text-muted">Secure online payment using PayMaya</p>
+                                                    <div class="payment-instructions">
+                                                        <div class="card card-body bg-light">
+                                                            <div class="row">
+                                                                <div class="col-md-7">
+                                                                    <p class="mb-2"><strong>How to pay via PayMaya:</strong></p>
+                                                                    <ol class="mb-3 ps-3">
+                                                                        <li>Open your PayMaya app</li>
+                                                                        <li>Select "Scan to Pay"</li>
+                                                                        <li>Scan the QR code shown here</li>
+                                                                        <li>Enter the exact amount: ₱<span class="fare-amount">0.00</span></li>
+                                                                        <li>Include your booking reference in the notes/description</li>
+                                                                        <li>Complete the payment</li>
+                                                                        <li>Take a screenshot of your payment confirmation</li>
+                                                                        <li>Upload the screenshot below</li>
+                                                                        <li>Make sure the admin has verified your ticket on the My Bookings page before presenting it to the staff</li>
+                                                                    </ol>
+                                                                    <div class="alert alert-info small mb-2">
+                                                                        <i class="fas fa-info-circle me-1"></i> Your booking will be confirmed after our staff verifies your payment.
+                                                                    </div>
+                                                                    
+                                                                    <!-- Payment Proof Upload Section -->
+                                                                    <div class="payment-proof-upload mt-3">
+                                                                        <label for="paymaya_payment_proof" class="form-label"><strong>Upload Payment Screenshot:</strong></label>
+                                                                        <input class="form-control form-control-sm" id="paymaya_payment_proof" name="paymaya_payment_proof" type="file" accept="image/*">
+                                                                        <div class="form-text">Supported formats: JPG, PNG (Max 5MB)</div>
+                                                                        <div class="payment-preview mt-2 d-none">
+                                                                            <div class="card">
+                                                                                <div class="card-body p-2">
+                                                                                    <div class="d-flex align-items-center">
+                                                                                        <img src="" alt="Payment preview" class="img-thumbnail me-2" style="max-width: 100px; max-height: 100px;">
+                                                                                        <div>
+                                                                                            <p class="mb-1 small preview-filename">filename.jpg</p>
+                                                                                            <div class="d-flex">
+                                                                                                <button type="button" class="btn btn-sm btn-danger remove-preview me-2">
+                                                                                                    <i class="fas fa-times me-1"></i>Remove
+                                                                                                </button>
+                                                                                                <button type="button" class="btn btn-sm btn-primary change-preview">
+                                                                                                    <i class="fas fa-exchange-alt me-1"></i>Change
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="col-md-5 text-center">
+                                                                    <div class="qr-code-container p-2 bg-white border rounded mb-2">
+                                                                        <img src="../assets/QRmaya.jpg" alt="PayMaya QR Code" class="img-fluid mb-2" style="max-width: 150px;">
+                                                                        <!-- Fallback if image unavailable -->
+                                                                        <div class="qr-fallback d-none border border-primary p-4 rounded bg-light text-center mb-2" style="width: 150px; height: 150px; margin: 0 auto;">
+                                                                            <i class="fas fa-qrcode fa-5x text-primary mb-2"></i>
+                                                                            <p class="small mb-0">PayMaya QR Code</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <p class="small text-muted mb-0">ISAT-U Ceres Bus Ticketing</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="payment-radio form-check">
+                                                    <input class="form-check-input" type="radio" name="payment_method" id="payment_paymaya" value="paymaya">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="d-flex justify-content-between mt-4">
+                                            <button type="button" class="btn btn-secondary" id="backToSeatBtn">
+                                                <i class="fas fa-arrow-left me-2"></i>Back to Seat Selection
+                                            </button>
+                                            <button type="button" class="btn btn-success" id="proceedToConfirmBtn" disabled>
+                                                <i class="fas fa-check-circle me-2"></i>Proceed to Confirm
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             
                             <div class="col-md-4">
@@ -868,10 +1465,12 @@ if ($current_bus_id > 0) {
                                         <h5 class="mb-0"><i class="fas fa-clipboard-check me-2"></i>Booking Summary</h5>
                                     </div>
                                     <div class="card-body">
-                                        <form action="booking.php" method="POST" id="bookingForm">
+                                        <form action="booking.php" method="POST" id="bookingForm" enctype="multipart/form-data">
                                             <input type="hidden" name="bus_id" id="summary_bus_id" value="">
                                             <input type="hidden" name="seat_number" id="summary_seat_number" value="">
                                             <input type="hidden" name="booking_date" id="summary_booking_date" value="<?php echo $selected_date; ?>">
+                                            <input type="hidden" name="discount_type" id="summary_discount_type" value="regular">
+                                            <input type="hidden" name="payment_method" id="summary_payment_method" value="">
                                             <input type="hidden" name="book_ticket" value="1">
                                             
                                             <div class="mb-3">
@@ -881,7 +1480,7 @@ if ($current_bus_id > 0) {
                                             
                                             <div class="mb-3">
                                                 <label class="form-label fw-bold">Route</label>
-                                                <div class="form-control bg-light" id="summary_route">
+                                                <div class="form-control bg-light" id="summary_route" aria-live="polite">
                                                     <?php if (!empty($selected_origin) && !empty($selected_destination)): ?>
                                                     <?php echo htmlspecialchars($selected_origin); ?> to <?php echo htmlspecialchars($selected_destination); ?>
                                                     <?php else: ?>
@@ -911,34 +1510,109 @@ if ($current_bus_id > 0) {
                                             
                                             <div class="mb-3">
                                                 <label class="form-label fw-bold">Travel Date</label>
-                                                <div class="form-control bg-light" id="summary_date">
+                                                <div class="form-control bg-light" id="summary_date" aria-live="polite">
                                                     <?php echo date('F d, Y', strtotime($selected_date)); ?>
                                                 </div>
                                             </div>
                                             
                                             <div class="mb-3">
                                                 <label class="form-label fw-bold">Bus Type</label>
-                                                <div class="form-control bg-light" id="summary_bus_type">Not selected</div>
+                                                <div class="form-control bg-light" id="summary_bus_type" aria-live="polite">Not selected</div>
+                                            </div>
+
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold">Trip Number</label>
+                                                <div class="form-control bg-light" id="summary_trip_number" aria-live="polite">Not selected</div>
                                             </div>
                                             
                                             <div class="mb-3">
                                                 <label class="form-label fw-bold">Travel Time</label>
-                                                <div class="form-control bg-light" id="summary_departure">Not selected</div>
+                                                <div class="form-control bg-light" id="summary_departure" aria-live="polite">Not selected</div>
                                             </div>
                                             
                                             <div class="mb-3">
                                                 <label class="form-label fw-bold">Seat Number</label>
-                                                <div class="form-control bg-light" id="summary_seat">Not selected</div>
+                                                <div class="form-control bg-light" id="summary_seat" aria-live="polite">Not selected</div>
                                             </div>
                                             
                                             <div class="mb-3">
                                                 <label class="form-label fw-bold">Fare Amount</label>
-                                                <div class="form-control bg-light" id="summary_fare">₱0.00</div>
+                                                <div class="form-control bg-light" id="summary_fare" aria-live="polite">₱0.00</div>
                                             </div>
+                                            
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold">Payment Method</label>
+                                                <div class="form-control bg-light" id="summary_payment_display" aria-live="polite">Not selected</div>
+                                            </div>
+                                            
+                                            <!-- Discount ID Proof Upload -->
+                                            <!--<div class="mb-3" id="discount-proof-section" style="display: none;">
+                                                <label class="form-label fw-bold">Discount ID Proof</label>
+                                                <input type="file" name="discount_id_proof" id="discount_id_proof" class="form-control" accept="image/*,.pdf">
+                                                <small class="text-muted">Upload your student/senior/PWD ID (JPG, PNG, or PDF, max 5MB)</small>
+                                                <div id="id-preview" class="mt-2 d-none">
+                                                    <div class="card">
+                                                        <div class="card-body p-2">
+                                                            <div class="d-flex align-items-center">
+                                                                <div class="me-3">
+                                                                    <img id="id-preview-image" src="#" alt="ID Preview" class="img-thumbnail" style="max-height: 60px; display: none;">
+                                                                    <div id="id-preview-pdf" class="bg-light p-2 rounded" style="display: none;">
+                                                                        <i class="fas fa-file-pdf text-danger fa-2x"></i>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="flex-grow-1">
+                                                                    <div class="id-preview-filename small text-truncate"></div>
+                                                                    <div class="d-flex gap-2 mt-2">
+                                                                        <button type="button" class="btn btn-sm btn-outline-secondary change-id-preview">
+                                                                            <i class="fas fa-sync me-1"></i> Change
+                                                                        </button>
+                                                                        <button type="button" class="btn btn-sm btn-outline-danger remove-id-preview">
+                                                                            <i class="fas fa-trash me-1"></i> Remove
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>-->
+                                            
+                                            <!-- Payment Proof Upload (will be shown based on payment method) -->
+                                            <div class="mb-3" id="payment-proof-section" style="display: none;">
+                                                <label class="form-label fw-bold">Payment Proof</label>
+                                                <input type="file" name="payment_proof" id="payment_proof" class="form-control" accept="image/*">
+                                                <small class="text-muted">Upload screenshot of your payment (JPG or PNG, max 5MB)</small>
+                                                <div id="payment-preview" class="mt-2 d-none">
+                                                    <div class="card">
+                                                        <div class="card-body p-2">
+                                                            <div class="d-flex align-items-center">
+                                                                <div class="me-3">
+                                                                    <img id="payment-preview-image" src="#" alt="Payment Preview" class="img-thumbnail" style="max-height: 60px;">
+                                                                </div>
+                                                                <div class="flex-grow-1">
+                                                                    <div class="payment-preview-filename small text-truncate"></div>
+                                                                    <div class="d-flex gap-2 mt-2">
+                                                                        <button type="button" class="btn btn-sm btn-outline-secondary change-payment-preview">
+                                                                            <i class="fas fa-sync me-1"></i> Change
+                                                                        </button>
+                                                                        <button type="button" class="btn btn-sm btn-outline-danger remove-payment-preview">
+                                                                            <i class="fas fa-trash me-1"></i> Remove
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Error Message Container -->
+                                            <div id="booking-errors" class="alert alert-danger d-none mb-3"></div>
                                             
                                             <div class="d-grid">
                                                 <button type="submit" class="btn btn-success btn-lg" id="confirmBookingBtn" disabled>
-                                                    <i class="fas fa-ticket-alt me-2"></i>Confirm Booking
+                                                    <span id="submit-text"><i class="fas fa-ticket-alt me-2"></i>Confirm Booking</span>
+                                                    <span id="submit-spinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
                                                 </button>
                                             </div>
                                         </form>
@@ -1096,6 +1770,7 @@ if ($current_bus_id > 0) {
         let selectedBusId = null;
         let selectedSeatNumber = null;
         let selectedBusData = null;
+        let selectedPaymentMethod = null;
         
         // Bus selection
         document.querySelectorAll('.bus-card').forEach(function(card) {
@@ -1108,6 +1783,7 @@ if ($current_bus_id > 0) {
                 const arrival = this.getAttribute('data-arrival');
                 const bookedSeats = parseInt(this.getAttribute('data-booked') || '0');
                 const availableSeats = parseInt(this.getAttribute('data-available') || capacity);
+                const tripNumber = this.getAttribute('data-trip-number') || 'Not specified';
                 
                 // Remove selection from all buses
                 document.querySelectorAll('.bus-card').forEach(function(c) {
@@ -1126,7 +1802,8 @@ if ($current_bus_id > 0) {
                     capacity: capacity,
                     fare: fareAmount,
                     bookedSeats: bookedSeats,
-                    availableSeats: availableSeats
+                    availableSeats: availableSeats,
+                    tripNumber: tripNumber
                 };
                 
                 // Update summary
@@ -1134,6 +1811,11 @@ if ($current_bus_id > 0) {
                 document.getElementById('summary_bus_type').textContent = selectedBusData.type;
                 document.getElementById('summary_departure').textContent = selectedBusData.departure;
                 document.getElementById('summary_fare').textContent = '₱' + parseFloat(fareAmount).toFixed(2);
+                
+                // Update trip number in summary
+                if (document.getElementById('summary_trip_number')) {
+                    document.getElementById('summary_trip_number').textContent = tripNumber;
+                }
                 
                 // Add seat availability information to the summary if element exists
                 const seatInfoElement = document.getElementById('summary_seat_info');
@@ -1410,15 +2092,19 @@ if ($current_bus_id > 0) {
                     document.getElementById('summary_seat_number').value = selectedSeatNumber;
                     document.getElementById('summary_seat').textContent = `Seat ${selectedSeatNumber}`;
                     
-                    // Enable confirm button
-                    document.getElementById('confirmBookingBtn').disabled = false;
+                    // Show payment methods section
+                    document.getElementById('payment-selection').style.display = 'block';
                     
                     // Update steps
                     document.getElementById('step2').classList.remove('active');
-                    document.getElementById('step3').classList.add('active');
+                    document.getElementById('step3').classList.remove('active');
+                    document.getElementById('step4').classList.add('active');
                     
                     // Show visual confirmation
                     showSeatSelectedAlert(selectedSeatNumber);
+                    
+                    // Scroll to payment selection
+                    document.getElementById('payment-selection').scrollIntoView({ behavior: 'smooth' });
                 });
             }
             
@@ -1432,7 +2118,7 @@ if ($current_bus_id > 0) {
             seatSelectedAlert.className = 'alert alert-success alert-dismissible fade show mt-3';
             seatSelectedAlert.innerHTML = `
                 <i class="fas fa-check-circle me-2"></i>
-                <strong>Seat ${seatNumber} selected!</strong> You can now confirm your booking.
+                <strong>Seat ${seatNumber} selected!</strong> Please proceed to select your payment method.
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             `;
             
@@ -1453,6 +2139,81 @@ if ($current_bus_id > 0) {
             }, 3000);
         }
         
+        // Payment method selection
+        document.querySelectorAll('.payment-method-option').forEach(function(option) {
+            option.addEventListener('click', function() {
+                const paymentMethod = this.getAttribute('data-payment');
+                
+                // Update radio selection
+                const radioInput = this.querySelector('input[type="radio"]');
+                radioInput.checked = true;
+                
+                // Remove selection from all payment methods
+                document.querySelectorAll('.payment-method-option').forEach(function(opt) {
+                    opt.classList.remove('selected');
+                });
+                
+                // Select this payment method
+                this.classList.add('selected');
+                selectedPaymentMethod = paymentMethod;
+                
+                // Update summary
+                document.getElementById('summary_payment_method').value = paymentMethod;
+                
+                // Update payment method display in summary
+                const paymentDisplay = document.getElementById('summary_payment_display');
+                let paymentText = '';
+                
+                switch(paymentMethod) {
+                    case 'counter':
+                        paymentText = '<i class="fas fa-money-bill-wave me-2"></i>Pay Over the Counter';
+                        break;
+                    case 'gcash':
+                        paymentText = '<i class="fas fa-mobile-alt me-2"></i>GCash';
+                        break;
+                    case 'paymaya':
+                        paymentText = '<i class="fas fa-credit-card me-2"></i>PayMaya';
+                        break;
+                    default:
+                        paymentText = 'Not selected';
+                }
+                
+                paymentDisplay.innerHTML = paymentText;
+                
+                // Enable confirm button
+                document.getElementById('confirmBookingBtn').disabled = false;
+                document.getElementById('proceedToConfirmBtn').disabled = false;
+            });
+        });
+        
+        // Back to seat selection button
+        document.getElementById('backToSeatBtn').addEventListener('click', function() {
+            // Hide payment section
+            document.getElementById('payment-selection').style.display = 'none';
+            
+            // Scroll to seat selection
+            document.getElementById('seat-selection').scrollIntoView({ behavior: 'smooth' });
+            
+            // Update steps
+            document.getElementById('step4').classList.remove('active');
+            document.getElementById('step3').classList.add('active');
+        });
+        
+        // Proceed to confirmation button
+        document.getElementById('proceedToConfirmBtn').addEventListener('click', function() {
+            // Scroll to summary card for final confirmation
+            document.querySelector('.ticket-summary-card').scrollIntoView({ behavior: 'smooth' });
+            
+            // Add a pulse animation to the confirm booking button
+            const confirmBtn = document.getElementById('confirmBookingBtn');
+            confirmBtn.classList.add('pulse-animation');
+            
+            // Remove animation after a few seconds
+            setTimeout(() => {
+                confirmBtn.classList.remove('pulse-animation');
+            }, 2000);
+        });
+        
         // Form validation
         document.getElementById('bookingForm').addEventListener('submit', function(e) {
             // Check if bus is selected
@@ -1468,6 +2229,14 @@ if ($current_bus_id > 0) {
                 e.preventDefault();
                 alert('Please select a seat');
                 document.getElementById('seat-selection').scrollIntoView({ behavior: 'smooth' });
+                return;
+            }
+            
+            // Check if payment method is selected
+            if (!selectedPaymentMethod) {
+                e.preventDefault();
+                alert('Please select a payment method');
+                document.getElementById('payment-selection').scrollIntoView({ behavior: 'smooth' });
                 return;
             }
             
@@ -1627,30 +2396,637 @@ if ($current_bus_id > 0) {
                     const routeElement = summaryCard.querySelector('#summary_route').parentNode;
                     routeElement.parentNode.insertBefore(seatInfoDiv, routeElement.nextSibling);
                 }
+                
+                // Make sure payment method display exists
+                if (!document.getElementById('summary_payment_display')) {
+                    const paymentDisplayDiv = document.createElement('div');
+                    paymentDisplayDiv.className = 'mb-3';
+                    paymentDisplayDiv.innerHTML = `
+                        <label class="form-label fw-bold">Payment Method</label>
+                        <div class="form-control bg-light" id="summary_payment_display">Not selected</div>
+                    `;
+                    
+                    // Insert before the confirm button
+                    const confirmBtn = summaryCard.querySelector('#confirmBookingBtn').parentNode;
+                    confirmBtn.parentNode.insertBefore(paymentDisplayDiv, confirmBtn);
+                }
             }
             
             // Add seat selection guide if it doesn't exist
             const seatSelectionCard = document.querySelector('#seat-selection .card-body');
             if (seatSelectionCard && !seatSelectionCard.querySelector('.seat-selection-guide')) {
                 const seatMapContainer = document.querySelector('.seat-map-container');
-                if (seatMapContainer) {
+                const guideElement = document.createElement('div');
+                guideElement.className = 'alert alert-info mb-3 seat-selection-guide';
+                guideElement.innerHTML = `
+                    <div class="d-flex align-items-center">
+                        <div class="me-3">
+                            <i class="fas fa-info-circle fa-2x text-info"></i>
+                        </div>
+                        <div>
+                            <h6 class="alert-heading mb-1">Seat Selection Guide</h6>
+                            <p class="mb-0 small">The seats shown in <span class="text-success fw-bold">green</span> are available for booking, while the seats in <span class="text-danger fw-bold">red</span> are already booked. The back row has 6 seats. Please select one seat for your journey.</p>
+                        </div>
+                    </div>
+                `;
+                seatSelectionCard.insertBefore(guideElement, seatMapContainer);
+            }
+            
+            // Add payment method explanation if it doesn't exist
+            const paymentSelectionCard = document.querySelector('#payment-selection .card-body');
+            if (paymentSelectionCard && !paymentSelectionCard.querySelector('.payment-selection-guide')) {
+                const paymentMethods = document.querySelector('.payment-methods');
+                if (paymentMethods) {
                     const guideElement = document.createElement('div');
-                    guideElement.className = 'alert alert-info mb-3 seat-selection-guide';
+                    guideElement.className = 'alert alert-info mb-3 payment-selection-guide';
                     guideElement.innerHTML = `
                         <div class="d-flex align-items-center">
                             <div class="me-3">
                                 <i class="fas fa-info-circle fa-2x text-info"></i>
                             </div>
                             <div>
-                                <h6 class="alert-heading mb-1">Seat Selection Guide</h6>
-                                <p class="mb-0 small">The seats shown in <span class="text-success fw-bold">green</span> are available for booking, while the seats in <span class="text-danger fw-bold">red</span> are already booked. The back row has 6 seats. Please select one seat for your journey.</p>
+                                <h6 class="alert-heading mb-1">Payment Method Guide</h6>
+                                <p class="mb-0 small">Select your preferred payment method. Over-the-counter lets you pay at the terminal before your trip, while online options like GCash and PayMaya allow for immediate payment. Click on a payment method to see more details.</p>
                             </div>
                         </div>
                     `;
-                    seatSelectionCard.insertBefore(guideElement, seatMapContainer);
+                    paymentSelectionCard.insertBefore(guideElement, paymentMethods);
                 }
             }
+
+            // Initialize discount ID proof upload functionality
+            setupDiscountIdUpload();
         });
+
+        // Function to set up discount ID proof upload
+        function setupDiscountIdUpload() {
+            const discountIdInput = document.getElementById('discount_id_proof');
+            const idPreview = document.getElementById('id-preview');
+            const idUploadSection = document.getElementById('id-upload-section');
+            
+            if (!discountIdInput || !idPreview) return;
+            
+            discountIdInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                // Validate file type
+                const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
+                if (!validTypes.includes(file.type)) {
+                    alert('Please upload a JPG, PNG, GIF, or PDF file for your ID proof.');
+                    discountIdInput.value = '';
+                    return;
+                }
+                
+                // Validate file size (5MB limit)
+                const fileSize = file.size / 1024 / 1024; // in MB
+                if (fileSize > 5) {
+                    alert('File size exceeds 5MB. Please upload a smaller file.');
+                    discountIdInput.value = '';
+                    return;
+                }
+                
+                // Create preview
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    idPreview.classList.remove('d-none');
+                    
+                    // Set preview content based on file type
+                    if (file.type.includes('image')) {
+                        idPreview.innerHTML = `
+                            <div class="d-flex flex-column align-items-center">
+                                <img src="${event.target.result}" class="img-thumbnail mb-2" style="max-height: 200px;">
+                                <div class="id-preview-filename text-center mb-2">${file.name}</div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary change-id-preview">
+                                        <i class="fas fa-sync me-1"></i> Change
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger remove-id-preview">
+                                        <i class="fas fa-trash me-1"></i> Remove
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        // For PDF files
+                        idPreview.innerHTML = `
+                            <div class="d-flex flex-column align-items-center">
+                                <div class="bg-light p-4 mb-2 rounded">
+                                    <i class="fas fa-file-pdf fa-3x text-danger"></i>
+                                </div>
+                                <div class="id-preview-filename text-center mb-2">${file.name}</div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary change-id-preview">
+                                        <i class="fas fa-sync me-1"></i> Change
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger remove-id-preview">
+                                        <i class="fas fa-trash me-1"></i> Remove
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Set up event listeners for the buttons
+                    idPreview.querySelector('.change-id-preview').addEventListener('click', function() {
+                        discountIdInput.click();
+                    });
+                    
+                    idPreview.querySelector('.remove-id-preview').addEventListener('click', function() {
+                        discountIdInput.value = '';
+                        idPreview.classList.add('d-none');
+                    });
+                };
+                
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // Handle payment proof file uploads
+        document.addEventListener('DOMContentLoaded', function() {
+            // File upload handling for both payment methods
+            setupFileUpload('gcash_payment_proof');
+            setupFileUpload('paymaya_payment_proof');
+            
+            // Update the booking form to include file upload
+            const bookingForm = document.getElementById('bookingForm');
+            if (bookingForm) {
+                bookingForm.setAttribute('enctype', 'multipart/form-data');
+                
+                // Add a hidden input for the payment proof
+                const paymentProofInput = document.createElement('input');
+                paymentProofInput.type = 'hidden';
+                paymentProofInput.id = 'payment_proof_file';
+                paymentProofInput.name = 'payment_proof_file';
+                bookingForm.appendChild(paymentProofInput);
+            }
+            
+            // Update validation to check for payment proof when required
+            if (bookingForm) {
+                const originalSubmitHandler = bookingForm.onsubmit;
+                
+                bookingForm.onsubmit = function(e) {
+                    // First check if there's an original handler and call it
+                    if (originalSubmitHandler) {
+                        // If it returns false, stop processing
+                        if (originalSubmitHandler.call(this, e) === false) {
+                            return false;
+                        }
+                    }
+                    
+                    // Check discount ID proof if discount is selected
+                    const selectedDiscount = document.querySelector('input[name="discount_type"]:checked');
+                    if (selectedDiscount && selectedDiscount.value !== 'regular') {
+                        const discountIdInput = document.getElementById('discount_id_proof');
+                        if (!discountIdInput || !discountIdInput.files || discountIdInput.files.length === 0) {
+                            e.preventDefault();
+                            alert(`Please upload your ${selectedDiscount.value} ID for verification of your discount.`);
+                            document.getElementById('id-upload-section').scrollIntoView({ behavior: 'smooth' });
+                            return false;
+                        }
+                    }
+                    
+                    // Get selected payment method
+                    const paymentMethod = document.querySelector('input[name="payment_method"]:checked');
+                    if (!paymentMethod) {
+                        e.preventDefault();
+                        alert('Please select a payment method');
+                        document.getElementById('payment-selection').scrollIntoView({ behavior: 'smooth' });
+                        return false;
+                    }
+                    
+                    // Check if payment proof is required
+                    if (paymentMethod.value === 'gcash' || paymentMethod.value === 'paymaya') {
+                        const fileInput = document.getElementById(paymentMethod.value + '_payment_proof');
+                        
+                        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                            e.preventDefault();
+                            alert('Please upload a payment proof screenshot for ' + paymentMethod.value.toUpperCase());
+                            fileInput.focus();
+                            return false;
+                        }
+                        
+                        // Create FormData to properly include all files
+                        const formData = new FormData(bookingForm);
+                        
+                        // Add payment proof file
+                        formData.append(paymentMethod.value + '_payment_proof', fileInput.files[0]);
+                        
+                        // Add discount ID proof if applicable
+                        if (selectedDiscount && selectedDiscount.value !== 'regular') {
+                            const discountIdInput = document.getElementById('discount_id_proof');
+                            if (discountIdInput && discountIdInput.files.length > 0) {
+                                formData.append('discount_id_proof', discountIdInput.files[0]);
+                            }
+                        }
+                        
+                        // Stop the normal form submission
+                        e.preventDefault();
+                        
+                        // Show loading overlay
+                        document.body.insertAdjacentHTML('beforeend', `
+                            <div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                                background-color: rgba(0,0,0,0.7); z-index: 9999; display: flex; 
+                                justify-content: center; align-items: center;">
+                                <div class="card p-4 text-center">
+                                    <div class="spinner-border text-primary mb-3" role="status">
+                                        <span class="visually-hidden">Processing booking and uploading proof...</span>
+                                    </div>
+                                    <h5>Processing your booking...</h5>
+                                    <p>Uploading payment proof. Please wait, this may take a few moments.</p>
+                                </div>
+                            </div>
+                        `);
+                        
+                        // Submit the form with FormData using fetch
+                        fetch(bookingForm.action, {
+                            method: 'POST',
+                            body: formData,
+                        })
+                        .then(response => {
+                            if (response.redirected) {
+                                window.location.href = response.url;
+                            } else {
+                                window.location.reload();
+                            }
+                        })
+                        .catch(error => {
+                            document.getElementById('loading-overlay').remove();
+                            alert('Error submitting booking: ' + error.message);
+                            console.error('Error:', error);
+                        });
+                        
+                        return false;
+                    }
+                    
+                    // For counter payment (no file upload needed), use normal form submission
+                    document.body.insertAdjacentHTML('beforeend', `
+                        <div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                            background-color: rgba(0,0,0,0.7); z-index: 9999; display: flex; 
+                            justify-content: center; align-items: center;">
+                            <div class="card p-4 text-center">
+                                <div class="spinner-border text-primary mb-3" role="status">
+                                    <span class="visually-hidden">Processing booking...</span>
+                                </div>
+                                <h5>Processing your booking...</h5>
+                                <p>Please wait, this may take a few moments.</p>
+                            </div>
+                        </div>
+                    `);
+                };
+            }
+            
+            // Update payment method selection to set active file input
+            document.querySelectorAll('.payment-method-option').forEach(function(option) {
+                option.addEventListener('click', function() {
+                    const paymentMethod = this.getAttribute('data-payment');
+                    
+                    // Hide all payment proof upload sections
+                    document.querySelectorAll('.payment-proof-upload').forEach(function(upload) {
+                        upload.classList.remove('active-upload');
+                        upload.style.opacity = '0.5';
+                    });
+                    
+                    // Show only the active payment method's upload section
+                    const activeUpload = this.querySelector('.payment-proof-upload');
+                    if (activeUpload) {
+                        activeUpload.classList.add('active-upload');
+                        activeUpload.style.opacity = '1';
+                    }
+                });
+            });
+        });
+
+        // Function to set up file upload handling
+        function setupFileUpload(inputId) {
+            const fileInput = document.getElementById(inputId);
+            if (!fileInput) return;
+            
+            fileInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                // Validate file type
+                const fileType = file.type;
+                if (fileType !== 'image/jpeg' && fileType !== 'image/png') {
+                    alert('Please upload a JPG or PNG image file.');
+                    fileInput.value = '';
+                    return;
+                }
+                
+                // Check file size (5MB limit)
+                const fileSize = file.size / 1024 / 1024; // Convert to MB
+                if (fileSize > 5) {
+                    alert('File size exceeds 5MB. Please upload a smaller image.');
+                    fileInput.value = '';
+                    return;
+                }
+                
+                // Get preview container
+                const previewContainer = fileInput.nextElementSibling.nextElementSibling;
+                if (!previewContainer) return;
+                
+                // Create a preview
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    // Show preview container
+                    previewContainer.classList.remove('d-none');
+                    
+                    // Set image source
+                    const previewImg = previewContainer.querySelector('img');
+                    if (previewImg) {
+                        previewImg.src = event.target.result;
+                    }
+                    
+                    // Set filename
+                    const filenameElement = previewContainer.querySelector('.preview-filename');
+                    if (filenameElement) {
+                        filenameElement.textContent = file.name;
+                    }
+                };
+                reader.readAsDataURL(file);
+                
+                // Set up remove button
+                const removeButton = previewContainer.querySelector('.remove-preview');
+                if (removeButton) {
+                    removeButton.onclick = function() {
+                        fileInput.value = '';
+                        previewContainer.classList.add('d-none');
+                    };
+                }
+                
+                // Set up change button
+                const changeButton = previewContainer.querySelector('.change-preview');
+                if (changeButton) {
+                    changeButton.onclick = function() {
+                        fileInput.click();
+                    };
+                }
+            });
+        }
+
+        // Discount selection and fare calculation
+        document.addEventListener('DOMContentLoaded', function() {
+            const discountOptions = document.querySelectorAll('.discount-option');
+            const idUploadSection = document.getElementById('id-upload-section');
+            let originalFare = 0;
+            
+            discountOptions.forEach(function(option) {
+                option.addEventListener('change', function() {
+                    const discountType = this.value;
+                    
+                    // Show ID upload section for all discount types except regular
+                    if (discountType !== 'regular') {
+                        idUploadSection.style.display = 'block';
+                    } else {
+                        idUploadSection.style.display = 'none';
+                    }
+                    
+                    // Update fare amount with discount
+                    updateFareWithDiscount(discountType);
+                });
+            });
+            
+            // Function to update fare with discount
+            function updateFareWithDiscount(discountType) {
+                const fareElement = document.getElementById('summary_fare');
+                if (!fareElement) return;
+                
+                const fareText = fareElement.textContent;
+                const fareMatch = fareText.match(/[\d,]+(\.\d+)?/);
+                
+                if (!fareMatch) return;
+                
+                const currentFare = parseFloat(fareMatch[0].replace(/,/g, ''));
+                
+                // Store the original fare if not already stored
+                if (originalFare === 0) {
+                    originalFare = currentFare;
+                }
+                
+                // Calculate discount
+                let discountedFare = originalFare;
+                let discountLabel = '';
+                
+                if (discountType === 'student' || discountType === 'senior' || discountType === 'pwd') {
+                    // Apply 20% discount
+                    discountedFare = originalFare * 0.8;
+                    discountLabel = ' (20% Discount Applied)';
+                }
+                
+                // Update hidden discount type field
+                const hiddenDiscountInput = document.getElementById('summary_discount_type');
+                if (hiddenDiscountInput) {
+                    hiddenDiscountInput.value = discountType;
+                } else {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.id = 'summary_discount_type';
+                    input.name = 'discount_type';
+                    input.value = discountType;
+                    document.getElementById('bookingForm').appendChild(input);
+                }
+                
+                // Update the fare display
+                fareElement.innerHTML = `₱${discountedFare.toFixed(2)}${discountLabel}`;
+                
+                // Update fare amount labels in payment instructions
+                document.querySelectorAll('.fare-amount').forEach(function(el) {
+                    el.textContent = discountedFare.toFixed(2);
+                });
+                
+                // Add highlight effect
+                fareElement.classList.add('fare-updated');
+                setTimeout(() => {
+                    fareElement.classList.remove('fare-updated');
+                }, 2000);
+            }
+        });
+
+        // Handle discount type changes
+        document.addEventListener('DOMContentLoaded', function() {
+            // Discount ID Proof Handling
+            const discountTypeRadios = document.querySelectorAll('input[name="discount_type"]');
+            const discountProofSection = document.getElementById('discount-proof-section');
+            const discountIdInput = document.getElementById('discount_id_proof');
+            const idPreview = document.getElementById('id-preview');
+            
+            discountTypeRadios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    document.getElementById('summary_discount_type').value = this.value;
+                    if (this.value !== 'regular') {
+                        discountProofSection.style.display = 'block';
+                    } else {
+                        discountProofSection.style.display = 'none';
+                        discountIdInput.value = '';
+                        idPreview.classList.add('d-none');
+                    }
+                });
+            });
+            
+            // Discount ID Proof Preview
+            discountIdInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                // Validate file
+                const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
+                if (!validTypes.includes(file.type)) {
+                    showError('Please upload a JPG, PNG, GIF, or PDF file for your ID proof.');
+                    this.value = '';
+                    return;
+                }
+                
+                if (file.size > 5 * 1024 * 1024) { // 5MB
+                    showError('File size exceeds 5MB. Please upload a smaller file.');
+                    this.value = '';
+                    return;
+                }
+                
+                // Show preview
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    idPreview.classList.remove('d-none');
+                    
+                    if (file.type.includes('image')) {
+                        document.getElementById('id-preview-image').src = e.target.result;
+                        document.getElementById('id-preview-image').style.display = 'block';
+                        document.getElementById('id-preview-pdf').style.display = 'none';
+                    } else {
+                        document.getElementById('id-preview-image').style.display = 'none';
+                        document.getElementById('id-preview-pdf').style.display = 'block';
+                    }
+                    
+                    document.querySelector('.id-preview-filename').textContent = file.name;
+                };
+                reader.readAsDataURL(file);
+            });
+            
+            // Payment Proof Handling (shown when payment method requires it)
+            const paymentMethodRadios = document.querySelectorAll('input[name="payment_method"]');
+            const paymentProofSection = document.getElementById('payment-proof-section');
+            const paymentProofInput = document.getElementById('payment_proof');
+            const paymentPreview = document.getElementById('payment-preview');
+            
+            paymentMethodRadios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    document.getElementById('summary_payment_method').value = this.value;
+                    if (this.value === 'gcash' || this.value === 'paymaya') {
+                        paymentProofSection.style.display = 'block';
+                    } else {
+                        paymentProofSection.style.display = 'none';
+                        paymentProofInput.value = '';
+                        paymentPreview.classList.add('d-none');
+                    }
+                });
+            });
+            
+            // Payment Proof Preview
+            paymentProofInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                // Validate file
+                if (!file.type.includes('image')) {
+                    showError('Please upload an image file (JPG or PNG) for payment proof.');
+                    this.value = '';
+                    return;
+                }
+                
+                if (file.size > 5 * 1024 * 1024) { // 5MB
+                    showError('File size exceeds 5MB. Please upload a smaller image.');
+                    this.value = '';
+                    return;
+                }
+                
+                // Show preview
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    paymentPreview.classList.remove('d-none');
+                    document.getElementById('payment-preview-image').src = e.target.result;
+                    document.querySelector('.payment-preview-filename').textContent = file.name;
+                };
+                reader.readAsDataURL(file);
+            });
+            
+            // Form submission
+            document.getElementById('bookingForm').addEventListener('submit', function(e) {
+                // Validate discount proof if needed
+                const discountType = document.getElementById('summary_discount_type').value;
+                if (discountType !== 'regular' && !discountIdInput.files.length) {
+                    e.preventDefault();
+                    showError('Please upload your discount ID proof');
+                    return false;
+                }
+                
+                // Validate payment proof if needed
+                const paymentMethod = document.getElementById('summary_payment_method').value;
+                if ((paymentMethod === 'gcash' || paymentMethod === 'paymaya') && !paymentProofInput.files.length) {
+                    e.preventDefault();
+                    showError('Please upload your payment proof');
+                    return false;
+                }
+                
+                // Show loading state
+                document.getElementById('submit-text').classList.add('d-none');
+                document.getElementById('submit-spinner').classList.remove('d-none');
+            });
+            
+            // Helper function to show errors
+            function showError(message) {
+                const errorDiv = document.getElementById('booking-errors');
+                errorDiv.textContent = message;
+                errorDiv.classList.remove('d-none');
+                errorDiv.scrollIntoView({ behavior: 'smooth' });
+            }
+            
+            // Set up preview button handlers
+            document.querySelector('.change-id-preview')?.addEventListener('click', () => discountIdInput.click());
+            document.querySelector('.remove-id-preview')?.addEventListener('click', () => {
+                discountIdInput.value = '';
+                idPreview.classList.add('d-none');
+            });
+            
+            document.querySelector('.change-payment-preview')?.addEventListener('click', () => paymentProofInput.click());
+            document.querySelector('.remove-payment-preview')?.addEventListener('click', () => {
+                paymentProofInput.value = '';
+                paymentPreview.classList.add('d-none');
+            });
+        });
+
+        // Add CSS styles for payment proof upload sections
+        const proofUploadStyles = document.createElement('style');
+        proofUploadStyles.textContent = `
+            .payment-proof-upload {
+                transition: opacity 0.3s ease;
+                padding: 10px;
+                border-radius: 5px;
+                background-color: rgba(0,0,0,0.02);
+            }
+            
+            .payment-proof-upload.active-upload {
+                background-color: rgba(0,123,255,0.05);
+            }
+            
+            .payment-preview {
+                transition: all 0.3s ease;
+            }
+            
+            .payment-preview img {
+                object-fit: cover;
+            }
+            
+            .fare-updated {
+                animation: fareUpdate 1s ease;
+            }
+            
+            @keyframes fareUpdate {
+                0% { background-color: transparent; }
+                50% { background-color: rgba(255, 193, 7, 0.3); }
+                100% { background-color: transparent; }
+            }
+        `;
+        document.head.appendChild(proofUploadStyles);
         
         // Initialize: Trigger origin change to set initial disabled states
         const originSelect = document.getElementById('origin');
@@ -1660,4 +3036,4 @@ if ($current_bus_id > 0) {
         }
     </script>
 </body>
-</html> 
+</html>

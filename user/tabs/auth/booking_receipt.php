@@ -88,10 +88,11 @@ try {
         }
         
         // Fetch bus details
-        $bus_query = "SELECT b.*, s.departure_time, s.arrival_time 
-                     FROM buses b
-                     LEFT JOIN schedules s ON b.id = s.bus_id
-                     WHERE b.id = ?";
+        $bus_query = "SELECT b.*, s.departure_time, s.arrival_time, s.trip_number
+                    FROM buses b
+                    LEFT JOIN schedules s ON b.id = s.bus_id
+                    WHERE b.id = ?";
+                     
         $bus_stmt = $conn->prepare($bus_query);
         $bus_stmt->bind_param("i", $booking_data['bus_id']);
         $bus_stmt->execute();
@@ -431,6 +432,10 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                                     <strong>Route:</strong> <?php echo htmlspecialchars($origin); ?> to <?php echo htmlspecialchars($destination); ?>
                                 </p>
                                 <p>
+                                    <span class="icon"><i class="fas fa-tag"></i></span>
+                                    <strong>Trip Number:</strong> <?php echo htmlspecialchars($bus_data['trip_number']); ?>
+                                </p>
+                                <p>
                                     <span class="icon"><i class="fas fa-calendar-alt"></i></span>
                                     <strong>Travel Date:</strong> <?php echo $booking_date_formatted; ?>
                                 </p>
@@ -446,6 +451,44 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                                     <span class="icon"><i class="fas fa-chair"></i></span>
                                     <strong>Seat Number:</strong> <?php echo $booking_data['seat_number']; ?>
                                 </p>
+                                <p>
+                                    <span class="icon"><i class="fas fa-money-bill-wave"></i></span>
+                                    <strong>Payment Method:</strong> 
+                                    <?php
+                                        $payment_method = isset($booking_data['payment_method']) ? $booking_data['payment_method'] : 'Not specified';
+                                        
+                                        if ($payment_method == 'counter') {
+                                            echo '<span class="badge bg-secondary">Pay at Counter</span>';
+                                        } elseif ($payment_method == 'gcash') {
+                                            echo '<span class="badge bg-primary">GCash</span>';
+                                        } elseif ($payment_method == 'paymaya') {
+                                            echo '<span class="badge bg-info">PayMaya</span>';
+                                        } else {
+                                            echo htmlspecialchars(ucfirst($payment_method));
+                                        }
+                                    ?>
+                                </p>
+                                <!--<p>
+                                    <span class="icon"><i class="fas fa-check-circle"></i></span>
+                                    <strong>Payment Status:</strong>
+                                    <?php
+                                        $payment_status = isset($booking_data['payment_status']) ? $booking_data['payment_status'] : 'pending';
+                                        
+                                        if ($payment_status == 'awaiting_verificatio') {
+                                            $payment_status = 'awaiting_verification';
+                                        }
+                                        
+                                        if ($payment_status == 'pending') {
+                                            echo '<span class="badge bg-warning text-dark">Payment Pending</span>';
+                                        } elseif ($payment_status == 'awaiting_verification') {
+                                            echo '<span class="badge bg-info">Awaiting Verification</span>';
+                                        } elseif ($payment_status == 'paid' || $payment_status == 'completed') {
+                                            echo '<span class="badge bg-success">Paid</span>';
+                                        } else {
+                                            echo '<span class="badge bg-secondary">' . htmlspecialchars(ucfirst(str_replace('_', ' ', $payment_status))) . '</span>';
+                                        }
+                                    ?>
+                                </p>-->
                             </div>
                         </div>
                         
@@ -596,7 +639,6 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-
         function printReceipt() {
             // Set print-specific styles
             const originalTitle = document.title;

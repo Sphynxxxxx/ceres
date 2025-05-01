@@ -71,6 +71,9 @@ try {
             b.booking_date, 
             b.booking_status, 
             b.created_at,
+            b.trip_number,
+            b.payment_status,
+            b.payment_method,
             bs.bus_type, 
             bs.plate_number,
             r.origin, 
@@ -338,6 +341,7 @@ try {
                                             
                                             <div class="row">
                                                 <div class="col-md-6">
+                                                    <p><i class="fas fa-hashtag me-2"></i><strong>Trip Number:</strong> <?php echo htmlspecialchars($booking['trip_number'] ?: 'N/A'); ?></p>
                                                     <p><i class="fas fa-calendar-alt me-2"></i><strong>Travel Date:</strong> <?php echo date('F d, Y', strtotime($booking['booking_date'])); ?></p>
                                                     <p><i class="fas fa-clock me-2"></i><strong>Departure:</strong> 
                                                         <?php echo $booking['departure_time'] ? date('h:i A', strtotime($booking['departure_time'])) : 'Check schedule'; ?>
@@ -351,6 +355,36 @@ try {
                                                     <p><i class="fas fa-id-card me-2"></i><strong>Plate #:</strong> <?php echo htmlspecialchars($booking['plate_number']); ?></p>
                                                     <p><i class="fas fa-chair me-2"></i><strong>Seat #:</strong> <?php echo $booking['seat_number']; ?></p>
                                                     <p><i class="fas fa-money-bill-wave me-2"></i><strong>Fare:</strong> ₱<?php echo number_format($booking['fare'], 2); ?></p>
+                                                    <p><i class="fas fa-credit-card me-2"></i><strong>Payment Method:</strong> <?php echo htmlspecialchars(ucfirst($booking['payment_method'] ?: 'N/A')); ?></p>
+                                                    <p>
+                                                        <i class="fas fa-check-circle me-2"></i><strong>Payment Status:</strong> 
+                                                        <?php 
+                                                        // Fix the misspelled status
+                                                        $payment_status = $booking['payment_status'];
+                                                        if ($payment_status === 'awaiting_verificatio') {
+                                                            $payment_status = 'awaiting_verification';
+                                                        }
+                                                        
+                                                        $payment_status_class = '';
+                                                        switch (strtolower($payment_status)) {
+                                                            case 'paid':
+                                                                $payment_status_class = 'text-success';
+                                                                break;
+                                                            case 'pending':
+                                                                $payment_status_class = 'text-warning';
+                                                                break;
+                                                            case 'awaiting_verification':
+                                                                $payment_status_class = 'text-info';
+                                                                break;
+                                                            case 'failed':
+                                                                $payment_status_class = 'text-danger';
+                                                                break;
+                                                        }
+                                                        ?>
+                                                        <span class="<?php echo $payment_status_class; ?>">
+                                                            <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $payment_status ?: 'N/A'))); ?>
+                                                        </span>
+                                                    </p>
                                                 </div>
                                             </div>
 
