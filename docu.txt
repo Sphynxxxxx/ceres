@@ -10,8 +10,6 @@ the Departs will display the trip and the Arrives will calculated the time from 
 And update the booking.php (DONE)
 the Travel Time will display the Departs time 
 
-
-
 NEED TO FIX
 The booking column on (schedules_admin.php)
 isn't showing the count
@@ -19,3 +17,4 @@ isn't showing the count
 UNWORKING SEARCH BOX (admin side)
 schedule
 routes
+
