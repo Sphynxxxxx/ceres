@@ -526,18 +526,6 @@ if ($current_bus_id > 0) {
                     <li class="nav-item">
                         <a class="nav-link" href="contact.php">Contact</a>
                     </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-user-circle me-1"></i><?php echo htmlspecialchars($user_name); ?>
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                            <li><a class="dropdown-item" href="dashboard.php"><i class="fas fa-tachometer-alt me-2"></i>Dashboard</a></li>
-                            <li><a class="dropdown-item" href="profile.php"><i class="fas fa-user me-2"></i>My Profile</a></li>
-                            <li><a class="dropdown-item" href="my_bookings.php"><i class="fas fa-ticket-alt me-2"></i>My Bookings</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
-                        </ul>
-                    </li>
                 </ul>
             </div>
         </div>
@@ -1634,7 +1622,7 @@ if ($current_bus_id > 0) {
                             </div>
                             <div>
                                 <h6 class="alert-heading mb-1">Seat Selection Guide</h6>
-                                <p class="mb-0 small">The seats shown in <span class="text-success fw-bold">green</span> are available for booking, while the seats in <span class="text-danger fw-bold">red</span> are already booked. The back row has 5 seats. Please select one seat for your journey.</p>
+                                <p class="mb-0 small">The seats shown in <span class="text-success fw-bold">green</span> are available for booking, while the seats in <span class="text-danger fw-bold">red</span> are already booked. The back row has 6 seats. Please select one seat for your journey.</p>
                             </div>
                         </div>
                     `;

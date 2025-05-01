@@ -1,4 +1,3 @@
-
 <?php
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
@@ -181,12 +180,19 @@ try {
     error_log("Error fetching routes info: " . $e->getMessage());
 }
 
-// Get schedules for the selected date to display departure/arrival times if they exist
+// Get schedules for the selected date including trip numbers
 $schedules_by_bus = [];
+$buses_with_schedules = []; // Track which buses have schedules
 try {
-    $query = "SELECT bus_id, departure_time, arrival_time, recurring, date, fare_amount
-              FROM schedules 
-              WHERE ((date = ? AND recurring = 0) OR recurring = 1)";
+    // Modified query to include trip_number
+    $query = "SELECT s.id as schedule_id, s.bus_id, s.origin, s.destination, 
+                 s.departure_time, s.arrival_time, s.recurring, 
+                 s.fare_amount, s.trip_number, s.status
+          FROM schedules s 
+          WHERE 
+              (s.recurring = 1 OR 
+               (s.recurring = 0 AND s.date = ?)) 
+              AND s.status = 'active'";
     
     $stmt = $conn->prepare($query);
     if ($stmt) {
@@ -197,6 +203,7 @@ try {
         if ($result) {
             while ($row = $result->fetch_assoc()) {
                 $bus_id = $row['bus_id'];
+                $buses_with_schedules[] = $bus_id; // Mark this bus as having a schedule
                 
                 // Format times
                 $row['formatted_departure'] = date('h:i A', strtotime($row['departure_time']));
@@ -214,6 +221,13 @@ try {
     error_log("Error fetching schedules by bus: " . $e->getMessage());
 }
 
+// Filter out active buses that don't have any schedules
+foreach ($active_buses as $bus_id => $bus) {
+    if (!isset($schedules_by_bus[$bus_id])) {
+        unset($active_buses[$bus_id]);
+    }
+}
+
 // Get the next 7 days for date navigation
 $next_dates = [];
 for ($i = 0; $i < 7; $i++) {
@@ -225,16 +239,26 @@ for ($i = 0; $i < 7; $i++) {
     ];
 }
 
-// Count total available buses for the day
+// Update counts after filtering
 $active_buses_count = count($active_buses);
 $maintenance_buses_count = count($maintenance_buses);
 
-// Default schedule times for buses without schedules
-$default_times = [
-    'morning' => ['departure' => '08:00 AM', 'arrival' => '10:30 AM'],
-    'afternoon' => ['departure' => '02:00 PM', 'arrival' => '04:30 PM'],
-    'evening' => ['departure' => '06:00 PM', 'arrival' => '08:30 PM']
-];
+// Function to calculate arrival time based on departure time and duration
+function calculateArrivalTime($departureTime, $duration) {
+    // Parse duration format like "2h 30m" or "1h"
+    preg_match('/(\d+)h(?:\s*(\d+)m)?/', $duration, $matches);
+    
+    $hours = isset($matches[1]) ? (int)$matches[1] : 0;
+    $minutes = isset($matches[2]) ? (int)$matches[2] : 0;
+    
+    $totalMinutes = ($hours * 60) + $minutes;
+    
+    // Calculate arrival time
+    $departureTimestamp = strtotime($departureTime);
+    $arrivalTimestamp = $departureTimestamp + ($totalMinutes * 60);
+    
+    return date('h:i A', $arrivalTimestamp);
+}
 ?>
 
 
@@ -470,6 +494,39 @@ $default_times = [
             margin-bottom: 0;
         }
         
+        /* New styles for trip numbers */
+        .trip-badge {
+            background-color: #e0f7fa;
+            color: #0277bd;
+            font-weight: 600;
+            font-size: 0.85rem;
+            padding: 5px 10px;
+            border-radius: 15px;
+            margin-top: 5px;
+            display: inline-block;
+        }
+        
+        /* Trip filter */
+        .trip-filter-item {
+            cursor: pointer;
+            padding: 5px 10px;
+            border-radius: 15px;
+            margin-right: 5px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            transition: all 0.2s;
+        }
+        
+        .trip-filter-item:hover {
+            background-color: #e9ecef;
+        }
+        
+        .trip-filter-item.active {
+            background-color: #ffc107;
+            border-color: #ffc107;
+            color: #212529;
+        }
+        
         /* Responsive adjustments */
         @media (max-width: 767.98px) {
             .departure, .arrival {
@@ -492,7 +549,7 @@ $default_times = [
     <!-- Navigation Bar -->
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="../index.php">
+            <a class="navbar-brand" href="../dashboard.php">
                 <i class="fas fa-bus-alt me-2"></i>Ceres Bus for ISAT-U Commuters
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -514,18 +571,6 @@ $default_times = [
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="contact.php">Contact</a>
-                    </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-user-circle me-1"></i><?php echo htmlspecialchars($user_name); ?>
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                            <li><a class="dropdown-item" href="../dashboard.php"><i class="fas fa-tachometer-alt me-2"></i>Dashboard</a></li>
-                            <li><a class="dropdown-item" href="../profile.php"><i class="fas fa-user me-2"></i>My Profile</a></li>
-                            <li><a class="dropdown-item" href="booking.php"><i class="fas fa-ticket-alt me-2"></i>My Bookings</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="../logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
-                        </ul>
                     </li>
                 </ul>
             </div>
@@ -662,6 +707,19 @@ $default_times = [
                             <?php endif; ?>
                         </div>
                         
+                        <!-- Trip Filter (New) -->
+                        <div class="mb-4">
+                            <h6><i class="fas fa-exchange-alt me-2"></i>Filter by Trip</h6>
+                            <div class="d-flex flex-wrap mt-2" id="trip-filter">
+                                <div class="trip-filter-item active" data-trip="all">All Trips</div>
+                                <div class="trip-filter-item" data-trip="1st Trip">1st Trip</div>
+                                <div class="trip-filter-item" data-trip="2nd Trip">2nd Trip</div>
+                                <div class="trip-filter-item" data-trip="3rd Trip">3rd Trip</div>
+                                <div class="trip-filter-item" data-trip="4th Trip">4th Trip</div>
+                                <div class="trip-filter-item" data-trip="Special Trip">Special Trip</div>
+                            </div>
+                        </div>
+                        
                         <!-- Schedule Cards - Display ACTIVE BUSES -->
                         <div class="row" id="schedule-cards">
                             <?php if (count($active_buses) > 0): ?>
@@ -672,28 +730,43 @@ $default_times = [
                                     $route_key = strtolower($bus['origin'] . '→' . $bus['destination']);
                                     $route_info = isset($routes_info[$route_key]) ? $routes_info[$route_key] : null;
                                     
+                                    // Get estimated duration for calculating arrival time
+                                    $estimated_duration = isset($route_info['estimated_duration']) ? $route_info['estimated_duration'] : '2h 30m';
+                                    
                                     // Get schedule information if available
                                     $bus_schedules = isset($schedules_by_bus[$bus_id]) ? $schedules_by_bus[$bus_id] : [];
                                     
-                                    // If no schedules exist, create default time slots
-                                    $time_slots = [];
-                                    if (empty($bus_schedules)) {
-                                        // Morning, afternoon, evening departures
-                                        foreach ($default_times as $time) {
-                                            $time_slots[] = [
-                                                'formatted_departure' => $time['departure'],
-                                                'formatted_arrival' => $time['arrival'],
-                                                'recurring' => 1 // Mark as daily
-                                            ];
-                                        }
-                                    } else {
-                                        $time_slots = $bus_schedules;
-                                    }
+                                    // Sort the schedules by departure time
+                                    usort($bus_schedules, function($a, $b) {
+                                        return strtotime($a['departure_time']) - strtotime($b['departure_time']);
+                                    });
                                     
                                     // Show each time slot as a separate card
-                                    foreach ($time_slots as $index => $time_slot):
+                                    foreach ($bus_schedules as $index => $schedule):
+                                        // If trip_number is not set, assign default trip names (1st Trip, 2nd Trip, etc.)
+                                        if (empty($schedule['trip_number'])) {
+                                            // Generate trip name based on index (0-based)
+                                            $trip_order = $index + 1;
+                                            
+                                            // Convert to ordinal (1st, 2nd, 3rd, etc.)
+                                            $ordinals = ['1st', '2nd', '3rd', '4th', '5th'];
+                                            $trip_name = isset($ordinals[$index]) ? $ordinals[$index] . ' Trip' : ($trip_order . 'th Trip');
+                                            
+                                            $schedule['trip_number'] = $trip_name;
+                                        }
+                                        
+                                        // Ensure arrival time is calculated based on route duration if not provided
+                                        if (empty($schedule['formatted_arrival'])) {
+                                            $schedule['formatted_arrival'] = calculateArrivalTime($schedule['formatted_departure'], $estimated_duration);
+                                        }
+                                        
+                                        // Set CSS class for trip filtering
+                                        $trip_class = !empty($schedule['trip_number']) ? 'trip-' . str_replace(' ', '-', strtolower($schedule['trip_number'])) : '';
+                                        
+                                        // Get trip number for display
+                                        $trip_number = !empty($schedule['trip_number']) ? $schedule['trip_number'] : 'Regular Trip';
                                 ?>
-                                    <div class="col-lg-6">
+                                    <div class="col-lg-6 schedule-item <?php echo $trip_class; ?>">
                                         <div class="card schedule-card">
                                             <div class="card-body">
                                                 <!-- Bus Type Badge -->
@@ -702,33 +775,40 @@ $default_times = [
                                                     <?php echo htmlspecialchars($bus['bus_type']); ?> Bus
                                                 </span>
                                                 
+                                                <!-- Trip Number Badge (NEW) -->
+                                                <span class="trip-badge float-end">
+                                                    <i class="fas fa-tag me-1"></i><?php echo htmlspecialchars($trip_number); ?>
+                                                </span>
+                                                
                                                 <!-- Bus Status Badge -->
                                                 <span class="badge bg-success me-2 float-end">
                                                     <i class="fas fa-check-circle me-1"></i>Active
                                                 </span>
                                                 
                                                 <!-- Schedule Type -->
-                                                <?php if (isset($time_slot['recurring']) && $time_slot['recurring'] == 1): ?>
-                                                    <span class="status-badge daily float-end">
+                                                <?php if (isset($schedule['recurring']) && $schedule['recurring'] == 1): ?>
+                                                    <span class="status-badge daily">
                                                         <i class="fas fa-sync-alt me-1"></i>Daily
                                                     </span>
                                                 <?php else: ?>
-                                                    <span class="status-badge one-time float-end">
+                                                    <span class="status-badge one-time">
                                                         <i class="fas fa-calendar-day me-1"></i>One-time
                                                     </span>
                                                 <?php endif; ?>
                                                 
                                                 <!-- Route Display -->
-                                                <h5 class="route-title mb-3">
+                                                <h5 class="route-title mt-3 mb-3">
                                                     <?php echo ucfirst(htmlspecialchars($bus['origin'])); ?> to <?php echo ucfirst(htmlspecialchars($bus['destination'])); ?>
                                                 </h5>
                                                 
                                                 <!-- Departure and Arrival Times -->
                                                 <div class="schedule-time">
                                                     <div class="departure text-center">
-                                                        <h5><?php echo htmlspecialchars($time_slot['formatted_departure']); ?></h5>
+                                                        <h5><?php echo htmlspecialchars($schedule['formatted_departure']); ?></h5>
                                                         <p><?php echo ucfirst(htmlspecialchars($bus['origin'])); ?></p>
-                                                        <small class="text-success"><i class="fas fa-clock me-1"></i>Departs</small>
+                                                        <small class="text-success">
+                                                            <i class="fas fa-clock me-1"></i>Departs
+                                                        </small>
                                                     </div>
                                                     
                                                     <div class="time-point">
@@ -736,9 +816,11 @@ $default_times = [
                                                     </div>
                                                     
                                                     <div class="arrival text-center">
-                                                        <h5><?php echo htmlspecialchars($time_slot['formatted_arrival']); ?></h5>
+                                                        <h5><?php echo htmlspecialchars($schedule['formatted_arrival']); ?></h5>
                                                         <p><?php echo ucfirst(htmlspecialchars($bus['destination'])); ?></p>
-                                                        <small class="text-success"><i class="fas fa-clock me-1"></i>Arrives</small>
+                                                        <small class="text-success">
+                                                            <i class="fas fa-clock me-1"></i>Arrives
+                                                        </small>
                                                     </div>
                                                 </div>
                                                 
@@ -747,14 +829,14 @@ $default_times = [
                                                     <div class="col-md-6">
                                                         <div class="schedule-info">
                                                             <i class="fas fa-clock"></i>
-                                                            <span><strong>Duration:</strong> <?php echo isset($route_info['estimated_duration']) ? htmlspecialchars($route_info['estimated_duration']) : '2h 30m'; ?></span>
+                                                            <span><strong>Duration:</strong> <?php echo htmlspecialchars($estimated_duration); ?></span>
                                                         </div>
                                                         
                                                         <div class="schedule-info">
                                                             <i class="fas fa-money-bill-wave"></i>
                                                             <span><strong>Fare:</strong> ₱<?php 
                                                                 $fare = isset($route_info['fare']) ? $route_info['fare'] : 
-                                                                       (isset($time_slot['fare_amount']) ? $time_slot['fare_amount'] : 150.00);
+                                                                    (isset($schedule['fare_amount']) ? $schedule['fare_amount'] : 150.00);
                                                                 echo number_format($fare, 2); 
                                                             ?></span>
                                                         </div>
@@ -768,14 +850,14 @@ $default_times = [
                                                         
                                                         <div class="schedule-info">
                                                             <i class="fas fa-calendar-alt"></i>
-                                                            <span><strong>Schedule:</strong> <?php echo isset($time_slot['recurring']) && $time_slot['recurring'] == 1 ? 'Daily' : 'One-time'; ?></span>
+                                                            <span><strong>Schedule:</strong> <?php echo isset($schedule['recurring']) && $schedule['recurring'] == 1 ? 'Daily' : 'One-time'; ?></span>
                                                         </div>
                                                     </div>
                                                 </div>
                                                 
                                                 <!-- Book Button -->
                                                 <div class="mt-3">
-                                                    <a href="booking.php?bus_id=<?php echo $bus_id; ?>&date=<?php echo $selected_date; ?>&time=<?php echo urlencode($time_slot['formatted_departure']); ?>" class="btn booking-cta">
+                                                    <a href="booking.php?bus_id=<?php echo $bus_id; ?>&date=<?php echo $selected_date; ?>&time=<?php echo urlencode($schedule['formatted_departure']); ?>&trip=<?php echo urlencode($trip_number); ?>&schedule_id=<?php echo $schedule['schedule_id']; ?>" class="btn booking-cta">
                                                         <i class="fas fa-ticket-alt me-2"></i>Book This Bus
                                                     </a>
                                                 </div>
@@ -783,15 +865,15 @@ $default_times = [
                                         </div>
                                     </div>
                                 <?php 
-                                    endforeach; // End time slot loop
+                                    endforeach; // End schedule loop
                                 endforeach; // End active buses loop
                                 ?>
                             <?php else: ?>
                                 <div class="col-12">
                                     <div class="no-schedule">
                                         <i class="fas fa-calendar-times"></i>
-                                        <h5>No active buses found for the selected criteria</h5>
-                                        <p class="text-muted">Try selecting a different route, or check back later for updated bus availability.</p>
+                                        <h5>No active schedules found for the selected criteria</h5>
+                                        <p class="text-muted">Try selecting a different route or date, or check back later for updated bus schedules.</p>
                                         
                                         <?php if (!empty($origin_filter) || !empty($destination_filter)): ?>
                                             <a href="schedule.php?date=<?php echo $selected_date; ?>" class="btn btn-outline-warning">
@@ -888,5 +970,45 @@ $default_times = [
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Trip filtering functionality -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get all trip filter items
+            const tripFilterItems = document.querySelectorAll('.trip-filter-item');
+            const scheduleItems = document.querySelectorAll('.schedule-item');
+            
+            // Add click event to each filter item
+            tripFilterItems.forEach(item => {
+                item.addEventListener('click', function() {
+                    // Remove active class from all items
+                    tripFilterItems.forEach(i => i.classList.remove('active'));
+                    
+                    // Add active class to clicked item
+                    this.classList.add('active');
+                    
+                    // Get selected trip
+                    const selectedTrip = this.getAttribute('data-trip');
+                    
+                    // Show/hide schedule items based on selection
+                    scheduleItems.forEach(scheduleItem => {
+                        if (selectedTrip === 'all') {
+                            scheduleItem.style.display = 'block';
+                        } else {
+                            // Convert the trip name to a class name format (e.g., "1st Trip" to "trip-1st-trip")
+                            const tripClass = 'trip-' + selectedTrip.toLowerCase().replace(' ', '-');
+                            
+                            // Check if the schedule item has the selected trip class
+                            if (scheduleItem.classList.contains(tripClass)) {
+                                scheduleItem.style.display = 'block';
+                            } else {
+                                scheduleItem.style.display = 'none';
+                            }
+                        }
+                    });
+                });
+            });
+        });
+    </script>
 </body>
 </html>

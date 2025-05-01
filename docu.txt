@@ -1,11 +1,17 @@
 NEXT UPDATE
 
-Update the Add New Route (routes_admin.php)
+Update the Add New Route (routes_admin.php) (DONE)
 that add a trip like drop box
 ex. 1st trip should 3:30 
 
-And update on schedule.php
+And update on schedule.php (DONE)
 the Departs will display the trip and the Arrives will calculated the time from estimated time
 
-And update the booking.php
+And update the booking.php (DONE)
 the Travel Time will display the Departs time 
+
+
+
+NEED TO FIX
+The booking column on (schedules_admin.php)
+isn't showing the count

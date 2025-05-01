@@ -157,7 +157,7 @@ $notification_count = count($notifications);
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="admin/tabs/schedule_admin.php">
+                    <a class="nav-link" href="admin/tabs/schedules_admin.php">
                         <i class="fas fa-calendar-alt"></i>
                         <span>Schedules</span>
                     </a>
