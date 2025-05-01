@@ -56,6 +56,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
     
     if (empty($errors)) {
         try {
+            // First, make sure the booking_reference column exists
+            try {
+                $alter_query = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS booking_reference VARCHAR(20) DEFAULT NULL";
+                $conn->query($alter_query);
+            } catch (Exception $e) {
+                error_log("Error adding booking_reference column: " . $e->getMessage());
+                // Continue with the booking process anyway
+            }
+            
             // Check if seat is already booked
             $check_query = "SELECT id FROM bookings WHERE bus_id = ? AND seat_number = ? AND booking_date = ? AND booking_status = 'confirmed'";
             $check_stmt = $conn->prepare($check_query);
@@ -66,37 +75,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
             if ($check_result->num_rows > 0) {
                 $booking_error = "This seat is already booked. Please select another seat.";
             } else {
+                // Begin a transaction to ensure all operations succeed or fail together
+                $conn->begin_transaction();
+                
                 // Insert booking
-                // Note: Modifying the query to match your DB schema (no booking_reference field)
                 $insert_query = "INSERT INTO bookings (bus_id, user_id, seat_number, booking_date, booking_status, created_at) 
                                 VALUES (?, ?, ?, ?, 'confirmed', NOW())";
                 $insert_stmt = $conn->prepare($insert_query);
                 $insert_stmt->bind_param("iiis", $bus_id, $user_id, $seat_number, $booking_date);
                 
                 if ($insert_stmt->execute()) {
-                    $booking_success = true;
                     $booking_id = $conn->insert_id;
                     
                     // Generate booking reference
                     $booking_reference = 'BK-' . date('Ymd') . '-' . $booking_id;
                     
-                    // Check if booking_reference column exists in the bookings table
-                    $check_column_query = "SHOW COLUMNS FROM bookings LIKE 'booking_reference'";
-                    $check_column_result = $conn->query($check_column_query);
+                    // Update the booking with the reference number
+                    $update_query = "UPDATE bookings SET booking_reference = ? WHERE id = ?";
+                    $update_stmt = $conn->prepare($update_query);
+                    $update_stmt->bind_param("si", $booking_reference, $booking_id);
                     
-                    // If booking_reference column exists, update it
-                    if ($check_column_result && $check_column_result->num_rows > 0) {
-                        $update_query = "UPDATE bookings SET booking_reference = ? WHERE id = ?";
-                        $update_stmt = $conn->prepare($update_query);
-                        $update_stmt->bind_param("si", $booking_reference, $booking_id);
-                        $update_stmt->execute();
+                    if (!$update_stmt->execute()) {
+                        // If update fails, log the error but don't fail the whole booking
+                        error_log("Failed to update booking reference: " . $update_stmt->error);
                     }
                     
+                    // Commit the transaction
+                    $conn->commit();
+                    
+                    // Set success flag and redirect to receipt page
+                    $booking_success = true;
+                    
+                    // Redirect to the booking receipt page
+                    header("Location: auth/booking_receipt.php?booking_id=" . $booking_id);
+                    exit;
+                    
                 } else {
+                    // Rollback in case of failure
+                    $conn->rollback();
                     $booking_error = "Error creating booking. Please try again.";
                 }
             }
         } catch (Exception $e) {
+            // Rollback in case of any exception
+            if ($conn->inTransaction()) {
+                $conn->rollback();
+            }
             $booking_error = "Database error: " . $e->getMessage();
         }
     } else {
@@ -503,7 +527,7 @@ if ($current_bus_id > 0) {
      <!-- Navigation Bar -->
      <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="index.php">
+            <a class="navbar-brand" href="../dashboard.php">
                 <i class="fas fa-bus-alt me-2"></i>Ceres Bus for ISAT-U Commuters
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -523,9 +547,6 @@ if ($current_bus_id > 0) {
                     <li class="nav-item">
                         <a class="nav-link active" href="booking.php">Book Ticket</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="contact.php">Contact</a>
-                    </li>
                 </ul>
             </div>
         </div>
@@ -542,7 +563,7 @@ if ($current_bus_id > 0) {
                     <h4 class="alert-heading"><i class="fas fa-check-circle me-2"></i>Booking Successful!</h4>
                     <p>Your ticket has been booked successfully. Your booking reference is: <strong><?php echo $booking_reference; ?></strong></p>
                     <hr>
-                    <p class="mb-0">You can view your booking details in <a href="my_bookings.php" class="alert-link">My Bookings</a> page.</p>
+                    <p class="mb-0">You can view your booking details in <a href="mybookings.php" class="alert-link">My Bookings</a> page.</p>
                 </div>
                 <?php elseif (!empty($booking_error)): ?>
                 <!-- Booking Error Message -->
@@ -1035,7 +1056,7 @@ if ($current_bus_id > 0) {
             </div>
         </div>
     </div>
-
+    
     <!-- Footer -->
     <footer class="footer mt-5">
         <div class="container">

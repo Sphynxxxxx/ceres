@@ -62,13 +62,12 @@ try {
     <link href="css/user.css" rel="stylesheet">
     <link href="css/navfot.css" rel="stylesheet">
     
-    
 </head>
 <body>
     <!-- Navigation Bar -->
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="../index.php">
+            <a class="navbar-brand" href="dashboard.php">
                 <i class="fas fa-bus-alt me-2"></i>Ceres Bus for ISAT-U Commuters
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -87,9 +86,6 @@ try {
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="tabs/booking.php">Book Ticket</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="tabs/contact.php">Contact</a>
                     </li>
                 </ul>
             </div>
@@ -112,7 +108,7 @@ try {
                             <a href="profile.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-user me-2"></i>My Profile
                             </a>
-                            <a href="tabs/booking.php" class="list-group-item list-group-item-action">
+                            <a href="tabs/mybookings.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-ticket-alt me-2"></i>My Bookings
                             </a>
                             <a href="tabs/booking.php" class="list-group-item list-group-item-action">
