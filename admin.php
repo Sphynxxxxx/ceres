@@ -145,7 +145,7 @@ $notification_count = count($notifications);
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="admin/tabs/booking_admin.php">
+                    <a class="nav-link" href="admin/tabs/bookings_admin.php">
                         <i class="fas fa-ticket-alt"></i>
                         <span>Bookings</span>
                     </a>

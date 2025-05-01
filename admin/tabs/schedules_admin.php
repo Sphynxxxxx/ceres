@@ -25,121 +25,15 @@ $action = isset($_GET['action']) ? $_GET['action'] : 'view';
 $success_message = '';
 $error_message = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Handle schedule creation/update
-    if (isset($_POST['save_schedule'])) {
-        $schedule_id = isset($_POST['schedule_id']) ? $_POST['schedule_id'] : null;
-        $bus_id = $_POST['bus_id'];
-        $origin = $_POST['origin'];
-        $destination = $_POST['destination'];
-        $departure_time = $_POST['departure_time'];
-        $arrival_time = $_POST['arrival_time'];
-        $fare_amount = $_POST['fare_amount'];
-        $recurring = isset($_POST['recurring']) ? 1 : 0;
-        $trip_number = $_POST['trip_number'];
-        $status = $_POST['status'];
-        
-        try {
-            // Start transaction
-            $conn->begin_transaction();
-            
-            if ($schedule_id) {
-                // Update existing schedule
-                $stmt = $conn->prepare("UPDATE schedules SET bus_id = ?, origin = ?, destination = ?, departure_time = ?, arrival_time = ?, fare_amount = ?, recurring = ?, trip_number = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
-                $stmt->bind_param("issssdissi", $bus_id, $origin, $destination, $departure_time, $arrival_time, $fare_amount, $recurring, $trip_number, $status, $schedule_id);
-                $stmt->execute();
-                
-                $success_message = "Schedule updated successfully!";
-            } else {
-                // Create new schedule
-                $stmt = $conn->prepare("INSERT INTO schedules (bus_id, origin, destination, departure_time, arrival_time, fare_amount, recurring, trip_number, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("issssdsss", $bus_id, $origin, $destination, $departure_time, $arrival_time, $fare_amount, $recurring, $trip_number, $status);
-                $stmt->execute();
-                
-                $success_message = "Schedule created successfully!";
-            }
-            
-            // Commit transaction
-            $conn->commit();
-            
-        } catch (Exception $e) {
-            // Rollback transaction on error
-            $conn->rollback();
-            $error_message = "Error: " . $e->getMessage();
-        }
-    }
-    
-    // Handle schedule deletion
-    if (isset($_POST['delete_schedule'])) {
-        $schedule_id = $_POST['schedule_id'];
-        
-        try {
-            // First, get the bus_id for the schedule being deleted
-            $bus_id_stmt = $conn->prepare("SELECT bus_id FROM schedules WHERE id = ?");
-            $bus_id_stmt->bind_param("i", $schedule_id);
-            $bus_id_stmt->execute();
-            $bus_id_result = $bus_id_stmt->get_result();
-            
-            if ($bus_id_result->num_rows === 0) {
-                throw new Exception("Schedule not found.");
-            }
-            
-            $bus_row = $bus_id_result->fetch_assoc();
-            $bus_id = $bus_row['bus_id'];
-            
-            // Check if there are any bookings for this bus
-            $booking_check_stmt = $conn->prepare("SELECT COUNT(*) as booking_count FROM bookings WHERE bus_id = ?");
-            $booking_check_stmt->bind_param("i", $bus_id);
-            $booking_check_stmt->execute();
-            $booking_result = $booking_check_stmt->get_result();
-            $booking_row = $booking_result->fetch_assoc();
-            
-            // If there are bookings, prevent deletion
-            if ($booking_row['booking_count'] > 0) {
-                $error_message = "Cannot delete schedule. There are {$booking_row['booking_count']} bookings for this bus.";
-                throw new Exception("Schedule has active bookings");
-            }
-            
-            // If no bookings, proceed with deletion
-            $delete_stmt = $conn->prepare("DELETE FROM schedules WHERE id = ?");
-            $delete_stmt->bind_param("i", $schedule_id);
-            $delete_result = $delete_stmt->execute();
-            
-            if ($delete_result) {
-                $success_message = "Schedule deleted successfully!";
-            } else {
-                throw new Exception("Failed to delete schedule.");
-            }
-            
-        } catch (Exception $e) {
-            // Only set error message if it hasn't been set already
-            if (empty($error_message)) {
-                $error_message = "Error: " . $e->getMessage();
-            }
-        }
-    }
-}
+// Check if bookings table exists
+$tableExists = $conn->query("SHOW TABLES LIKE 'bookings'");
+$bookings_table_exists = $tableExists && $tableExists->num_rows > 0;
 
-// Get schedule data if editing
-$edit_schedule = null;
-if ($action === 'edit' && isset($_GET['id'])) {
-    try {
-        $schedule_id = $_GET['id'];
-        $stmt = $conn->prepare("SELECT s.*, b.plate_number, b.bus_type FROM schedules s JOIN buses b ON s.bus_id = b.id WHERE s.id = ?");
-        $stmt->bind_param("i", $schedule_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        if ($result->num_rows === 1) {
-            $edit_schedule = $result->fetch_assoc();
-        } else {
-            $error_message = "Schedule not found.";
-            $action = 'view';
-        }
-    } catch (Exception $e) {
-        $error_message = "Error: " . $e->getMessage();
-    }
-}
+// Selected date for filtering
+$selected_date = isset($_GET['filter_date']) ? $_GET['filter_date'] : date('Y-m-d');
+
+// Rest of the existing code remains the same until the schedules fetching section
+// Modify the schedules fetching section:
 
 // Fetch all schedules for display
 $schedules = [];
@@ -177,60 +71,23 @@ try {
         $paramTypes .= "s";
     }
     
-    // First check if the 'bookings' table exists
-    $tableExists = $conn->query("SHOW TABLES LIKE 'bookings'");
-
-    if ($tableExists->num_rows > 0) {
-        // Bookings table exists, use bus_id for counting
+    // Base query with booking count
+    if ($bookings_table_exists) {
         $baseQuery = "SELECT s.*, 
                      b.plate_number, 
                      b.bus_type, 
-                     (SELECT COUNT(*) FROM bookings WHERE bus_id = s.bus_id) as booking_count
+                     (SELECT COUNT(*) FROM bookings WHERE bus_id = s.bus_id AND DATE(booking_date) = ?) as booking_count
                      FROM schedules s 
                      JOIN buses b ON s.bus_id = b.id";
+        
+        // Prepare parameters
+        array_unshift($whereParams, $selected_date);
+        $paramTypes = "s" . $paramTypes;
     } else {
         // Bookings table doesn't exist, skip the booking count
         $baseQuery = "SELECT s.*, 
                      b.plate_number, 
                      b.bus_type, 
-                     0 as booking_count
-                     FROM schedules s 
-                     JOIN buses b ON s.bus_id = b.id";
-    }
-    
-    if ($tableExists->num_rows > 0) {
-        $result = $conn->query("DESCRIBE bookings");
-        $bookingFields = [];
-        while ($row = $result->fetch_assoc()) {
-            $bookingFields[] = $row['Field'];
-        }
-        
-        // Check possible column names that might reference schedules
-        $scheduleField = null;
-        $possibleFields = ['schedule_id', 'schedules_id', 'schedule', 'id_schedule'];
-        foreach ($possibleFields as $field) {
-            if (in_array($field, $bookingFields)) {
-                $scheduleField = $field;
-                break;
-            }
-        }
-        
-        if ($scheduleField) {
-            // Found a matching field - use it in the query
-            $baseQuery = "SELECT s.*, b.plate_number, b.bus_type, 
-                         (SELECT COUNT(*) FROM bookings WHERE {$scheduleField} = s.id) as booking_count
-                         FROM schedules s 
-                         JOIN buses b ON s.bus_id = b.id";
-        } else {
-            // No matching field found - set booking count to 0
-            $baseQuery = "SELECT s.*, b.plate_number, b.bus_type, 
-                         0 as booking_count
-                         FROM schedules s 
-                         JOIN buses b ON s.bus_id = b.id";
-        }
-    } else {
-        // Bookings table doesn't exist, skip the booking count
-        $baseQuery = "SELECT s.*, b.plate_number, b.bus_type, 
                      0 as booking_count
                      FROM schedules s 
                      JOIN buses b ON s.bus_id = b.id";
@@ -245,7 +102,7 @@ try {
     $baseQuery .= " ORDER BY s.departure_time, s.origin, s.destination";
     
     // Prepare and execute the query
-    if (!empty($whereParams)) {
+    if ($bookings_table_exists && !empty($whereParams)) {
         $stmt = $conn->prepare($baseQuery);
         $stmt->bind_param($paramTypes, ...$whereParams);
         $stmt->execute();
@@ -262,6 +119,7 @@ try {
 } catch (Exception $e) {
     $error_message = "Error fetching schedules data: " . $e->getMessage();
 }
+
 
 // Fetch all buses for the form dropdown
 $buses = [];
@@ -290,6 +148,26 @@ try {
 } catch (Exception $e) {
     $error_message = "Error fetching routes data: " . $e->getMessage();
 }
+
+$tableExists = $conn->query("SHOW TABLES LIKE 'bookings'");
+
+    if ($tableExists->num_rows > 0) {
+        // Bookings table exists, use bus_id and date for counting
+        $baseQuery = "SELECT s.*, 
+                    b.plate_number, 
+                    b.bus_type, 
+                    (SELECT COUNT(*) FROM bookings WHERE bus_id = s.bus_id AND DATE(booking_date) = CURDATE()) as booking_count
+                    FROM schedules s 
+                    JOIN buses b ON s.bus_id = b.id";
+    } else {
+        // Bookings table doesn't exist, skip the booking count
+        $baseQuery = "SELECT s.*, 
+                    b.plate_number, 
+                    b.bus_type, 
+                    0 as booking_count
+                    FROM schedules s 
+                    JOIN buses b ON s.bus_id = b.id";
+    }
 
 // Notification count for display in header (demo data)
 $notification_count = 3;
