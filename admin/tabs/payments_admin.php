@@ -20,11 +20,11 @@ $search = isset($_GET['search']) ? $_GET['search'] : '';
 $sql_conditions = [];
 $sql_params = [];
 
-// Base query
+// Make sure your base query includes the discount_id_proof field:
 $base_query = "SELECT b.id, b.booking_reference, b.payment_method, b.payment_status, b.payment_proof_status, 
                b.payment_proof, b.payment_proof_timestamp, b.created_at, 
                u.first_name, u.last_name, b.trip_number, 
-               r.origin, r.destination, r.fare, b.discount_type, b.seat_number 
+               r.origin, r.destination, r.fare, b.discount_type, b.discount_id_proof, b.seat_number 
                FROM bookings b 
                JOIN users u ON b.user_id = u.id 
                JOIN buses bus ON b.bus_id = bus.id 
@@ -91,18 +91,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stmt_booking = $conn->prepare($update_booking);
             $stmt_booking->bind_param("i", $booking_id);
             $stmt_booking->execute();
-            
-            // Create notification
-            $create_notification = "INSERT INTO notifications (title, message, type, related_id, admin_read) 
-                                  VALUES ('Payment Verified', 'Payment for booking #$booking_id has been verified and approved', 'payment', ?, 0)";
-            $stmt_notif = $conn->prepare($create_notification);
-            $stmt_notif->bind_param("i", $booking_id);
-            $stmt_notif->execute();
-            
+        //    
+        //    // Create notification
+        //    $create_notification = "INSERT INTO notifications (title, message, type, related_id, admin_read) 
+        //                          VALUES ('Payment Verified', 'Payment for booking #$booking_id has been verified and approved', 'payment', ?, 0)";
+        //    $stmt_notif = $conn->prepare($create_notification);
+        //    $stmt_notif->bind_param("i", $booking_id);
+        //    $stmt_notif->execute();
+        //    
             $_SESSION['success_message'] = "Payment has been verified and approved successfully.";
         } else {
             $_SESSION['error_message'] = "Failed to verify payment.";
-        }
+        } 
         
         // Redirect to prevent resubmission
         header("Location: " . $_SERVER['PHP_SELF'] . "?" . http_build_query($_GET));
@@ -114,22 +114,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmt->bind_param("i", $booking_id);
         
         if ($stmt->execute()) {
-            // Create notification
-            $create_notification = "INSERT INTO notifications (title, message, type, related_id, admin_read) 
-                                  VALUES ('Payment Rejected', 'Payment for booking #$booking_id has been rejected. Please upload a valid payment proof.', 'payment', ?, 0)";
-            $stmt_notif = $conn->prepare($create_notification);
-            $stmt_notif->bind_param("i", $booking_id);
-            $stmt_notif->execute();
-            
+        //    // Create notification
+        //    $create_notification = "INSERT INTO notifications (title, message, type, related_id, admin_read) 
+        //                          VALUES ('Payment Rejected', 'Payment for booking #$booking_id has been rejected. Please upload a valid payment proof.', 'payment', ?, 0)";
+        //    $stmt_notif = $conn->prepare($create_notification);
+        //    $stmt_notif->bind_param("i", $booking_id);
+        //    $stmt_notif->execute();
+        //    
             $_SESSION['success_message'] = "Payment has been rejected.";
         } else {
             $_SESSION['error_message'] = "Failed to reject payment.";
         }
         
-        // Redirect to prevent resubmission
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . http_build_query($_GET));
-        exit;
-    }
+    } elseif ($_POST['action'] === 'mark_counter_payment') {
+            // Update payment status to verified and method to counter
+            $update_query = "UPDATE bookings SET payment_status = 'verified', payment_method = 'counter', payment_proof_status = 'verified' WHERE id = ?";
+            $stmt = $conn->prepare($update_query);
+            $stmt->bind_param("i", $booking_id);
+            
+            if ($stmt->execute()) {
+                // Also update booking status to confirmed
+                $update_booking = "UPDATE bookings SET booking_status = 'confirmed' WHERE id = ?";
+                $stmt_booking = $conn->prepare($update_booking);
+                $stmt_booking->bind_param("i", $booking_id);
+                $stmt_booking->execute();
+                
+            //    // Create notification
+            //    $create_notification = "INSERT INTO notifications (title, message, type, related_id, admin_read) 
+            //                          VALUES ('Counter Payment Processed', 'Payment for booking #$booking_id has been processed at the counter', 'payment', ?, 0)";
+            //    $stmt_notif = $conn->prepare($create_notification);
+            //    $stmt_notif->bind_param("i", $booking_id);
+            //    $stmt_notif->execute();
+                
+                $_SESSION['success_message'] = "Counter payment has been recorded successfully.";
+            } else {
+                $_SESSION['error_message'] = "Failed to process counter payment.";
+            }
+            
+            // Redirect to prevent resubmission
+            header("Location: " . $_SERVER['PHP_SELF'] . "?" . http_build_query($_GET));
+            exit;
+        }
+        elseif ($_POST['action'] === 'verify_discount') {
+            // Update discount verification status
+            $update_query = "UPDATE bookings SET discount_verified = 1 WHERE id = ?";
+            $stmt = $conn->prepare($update_query);
+            $stmt->bind_param("i", $booking_id);
+            
+            if ($stmt->execute()) {
+                $_SESSION['success_message'] = "Discount ID has been verified successfully.";
+            } else {
+                $_SESSION['error_message'] = "Failed to verify discount ID.";
+            }
+            
+            // Redirect to prevent resubmission
+            header("Location: " . $_SERVER['PHP_SELF'] . "?" . http_build_query($_GET));
+            exit;
+        }
 }
 
 // Prepare and execute the main query
@@ -504,6 +545,7 @@ if ($result && $result->num_rows > 0) {
                                             <th>Method</th>
                                             <th>Date</th>
                                             <th>Status</th>
+                                            <th>Discount</th>
                                             <th>Proof</th>
                                             <th>Actions</th>
                                         </tr>
@@ -529,6 +571,16 @@ if ($result && $result->num_rows > 0) {
                                                     ₱<?php echo number_format($fare, 2); ?>
                                                     <?php if ($payment['discount_type'] != 'regular'): ?>
                                                         <div class="badge bg-info text-white"><?php echo ucfirst($payment['discount_type']); ?> Discount</div>
+                                                        
+                                                        <?php if (!empty($payment['discount_id_proof'])): ?>
+                                                            <?php 
+                                                            // Extract the ID number from the filename
+                                                            $filename = basename($payment['discount_id_proof']);
+                                                            $id_parts = explode('_', $filename);
+                                                            $id_number = isset($id_parts[2]) ? $id_parts[2] : 'Unknown';
+                                                            ?>
+                                                            <div class="small text-muted mt-1">ID: <?php echo htmlspecialchars($id_number); ?></div>
+                                                        <?php endif; ?>
                                                     <?php endif; ?>
                                                 </td>
                                                 <td><?php echo ucfirst(htmlspecialchars($payment['payment_method'] ?? 'N/A')); ?></td>
@@ -538,7 +590,7 @@ if ($result && $result->num_rows > 0) {
                                                         <span class="badge bg-success">Verified</span>
                                                     <?php elseif ($payment['payment_status'] == 'pending'): ?>
                                                         <span class="badge bg-warning text-dark">Pending</span>
-                                                    <?php elseif ($payment['payment_status'] == 'awaiting_verification'): ?>
+                                                    <?php elseif ($payment['payment_status'] == 'awaiting_verification' || $payment['payment_status'] == 'awaiting_verificatio'): ?>
                                                         <span class="badge bg-primary">Awaiting Verification</span>
                                                     <?php elseif ($payment['payment_status'] == 'rejected'): ?>
                                                         <span class="badge bg-danger">Rejected</span>
@@ -546,40 +598,87 @@ if ($result && $result->num_rows > 0) {
                                                         <span class="badge bg-secondary"><?php echo ucfirst($payment['payment_status']); ?></span>
                                                     <?php endif; ?>
                                                 </td>
-                                                <td class="text-center">
+                                                <td>
+                                                    <?php if ($payment['discount_type'] != 'regular'): ?>
+                                                        <div class="badge bg-info text-white mb-1"><?php echo ucfirst($payment['discount_type']); ?></div>
+                                                        <?php if (!empty($payment['discount_id_proof'])): ?>
+                                                            <?php 
+                                                            $filename = basename($payment['discount_id_proof']);
+                                                            $id_parts = explode('_', $filename);
+                                                            $id_number = isset($id_parts[2]) ? $id_parts[2] : 'Unknown';
+                                                            ?>
+                                                            <div class="small mb-1">ID: <?php echo htmlspecialchars($id_number); ?></div>
+                                                            <img src="../../<?php echo htmlspecialchars($payment['discount_id_proof']); ?>" 
+                                                                class="payment-proof-img" 
+                                                                data-bs-toggle="modal" 
+                                                                data-bs-target="#discountIdModal" 
+                                                                data-img-src="../../<?php echo htmlspecialchars($payment['discount_id_proof']); ?>"
+                                                                data-discount-type="<?php echo ucfirst(htmlspecialchars($payment['discount_type'])); ?>"
+                                                                data-booking-id="<?php echo $payment['id']; ?>"
+                                                                alt="Discount ID Proof">
+                                                        <?php else: ?>
+                                                            <div class="small text-muted">No ID proof</div>
+                                                        <?php endif; ?>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">Regular</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td>
                                                     <?php if (!empty($payment['payment_proof'])): ?>
                                                         <img src="../../<?php echo htmlspecialchars($payment['payment_proof']); ?>" 
                                                             class="payment-proof-img" 
                                                             data-bs-toggle="modal" 
                                                             data-bs-target="#proofModal" 
                                                             data-img-src="../../<?php echo htmlspecialchars($payment['payment_proof']); ?>"
+                                                            data-booking-id="<?php echo $payment['id']; ?>"
+                                                            data-discount-type="<?php echo htmlspecialchars($payment['discount_type']); ?>"
+                                                            data-discount-id="<?php echo !empty($payment['discount_id_proof']) ? htmlspecialchars($payment['discount_id_proof']) : ''; ?>"
                                                             alt="Payment Proof">
                                                     <?php else: ?>
                                                         <span class="badge bg-secondary">No Proof</span>
                                                     <?php endif; ?>
                                                 </td>
                                                 <td>
-                                                    <?php if ($payment['payment_status'] == 'awaiting_verification' || $payment['payment_status'] == 'pending'): ?>
-                                                        <div class="btn-group">
-                                                            <form method="post" class="me-1">
+                                                    <?php if ($payment['payment_status'] == 'awaiting_verification' || $payment['payment_status'] == 'pending' || $payment['payment_status'] == 'awaiting_verificatio'): ?>
+                                                        <div class="d-flex flex-column gap-2">
+                                                            <form method="post" class="mb-1">
                                                                 <input type="hidden" name="booking_id" value="<?php echo $payment['id']; ?>">
                                                                 <input type="hidden" name="action" value="approve_payment">
-                                                                <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Are you sure you want to verify this payment?')">
-                                                                    <i class="fas fa-check"></i> Verify
+                                                                <button type="submit" class="btn btn-sm btn-success w-100" onclick="return confirm('Are you sure you want to verify this payment?')">
+                                                                    <i class="fas fa-check"></i> Verify Payment
                                                                 </button>
                                                             </form>
+                                                            
+                                                            <!--<form method="post" class="mb-1">
+                                                                <input type="hidden" name="booking_id" value="<?php echo $payment['id']; ?>">
+                                                                <input type="hidden" name="action" value="mark_counter_payment">
+                                                                <button type="submit" class="btn btn-sm btn-primary w-100" onclick="return confirm('Mark as paid at counter?')">
+                                                                    <i class="fas fa-cash-register"></i> Mark as Counter Payment
+                                                                </button>
+                                                            </form>-->
+                                                            
                                                             <form method="post">
                                                                 <input type="hidden" name="booking_id" value="<?php echo $payment['id']; ?>">
                                                                 <input type="hidden" name="action" value="reject_payment">
-                                                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to reject this payment?')">
+                                                                <button type="submit" class="btn btn-sm btn-danger w-100" onclick="return confirm('Are you sure you want to reject this payment?')">
                                                                     <i class="fas fa-times"></i> Reject
                                                                 </button>
                                                             </form>
                                                         </div>
                                                     <?php elseif ($payment['payment_status'] == 'verified'): ?>
-                                                        <span class="text-success"><i class="fas fa-check-circle"></i> Verified</span>
+                                                        <div class="text-success mb-2"><i class="fas fa-check-circle"></i> Verified</div>
+                                                        <?php if ($payment['payment_method'] == 'counter'): ?>
+                                                            <span class="badge bg-primary"><i class="fas fa-cash-register"></i> Counter Payment</span>
+                                                        <?php endif; ?>
                                                     <?php elseif ($payment['payment_status'] == 'rejected'): ?>
-                                                        <span class="text-danger"><i class="fas fa-times-circle"></i> Rejected</span>
+                                                        <div class="text-danger"><i class="fas fa-times-circle"></i> Rejected</div>
+                                                        <form method="post" class="mt-1">
+                                                            <input type="hidden" name="booking_id" value="<?php echo $payment['id']; ?>">
+                                                            <input type="hidden" name="action" value="mark_counter_payment">
+                                                            <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Mark as paid at counter?')">
+                                                                <i class="fas fa-cash-register"></i> Mark as Counter Payment
+                                                            </button>
+                                                        </form>
                                                     <?php endif; ?>
                                                 </td>
                                             </tr>
@@ -643,6 +742,31 @@ if ($result && $result->num_rows > 0) {
         </div>
     </div>
 
+    <!-- Add Discount ID Modal -->
+    <div class="modal fade" id="discountIdModal" tabindex="-1" aria-labelledby="discountIdModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="discountIdModalLabel">Discount ID Verification</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <h6 id="discountTypeDisplay" class="mb-3"></h6>
+                    <img id="discountIdImage" src="" class="modal-img" alt="Discount ID">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <a id="downloadId" href="#" class="btn btn-primary" download>Download</a>
+                    <form method="post" id="verifyDiscountForm">
+                        <input type="hidden" name="booking_id" id="discountBookingId" value="">
+                        <input type="hidden" name="action" value="verify_discount">
+                        <!--<button type="submit" class="btn btn-success">Verify Discount</button>-->
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script>
@@ -667,6 +791,53 @@ if ($result && $result->num_rows > 0) {
                 });
             }
             
+            // Handle discount ID modal
+            const discountIdModal = document.getElementById('discountIdModal');
+            if (discountIdModal) {
+                discountIdModal.addEventListener('show.bs.modal', function(event) {
+                    // Button that triggered the modal
+                    const button = event.relatedTarget;
+                    // Extract info from data-* attributes
+                    const imgSrc = button.getAttribute('data-img-src');
+                    const discountType = button.getAttribute('data-discount-type');
+                    
+                    // Get booking ID - fixing the selector to find it correctly
+                    let bookingId;
+                    try {
+                        // Try to get booking ID from the parent row first form
+                        const parentRow = button.closest('tr');
+                        if (parentRow) {
+                            const bookingIdInput = parentRow.querySelector('form input[name="booking_id"]');
+                            if (bookingIdInput) {
+                                bookingId = bookingIdInput.value;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error getting booking ID:', e);
+                    }
+                    
+                    // Update the modal's content
+                    const discountIdImage = document.getElementById('discountIdImage');
+                    discountIdImage.src = imgSrc;
+                    
+                    // Update discount type display
+                    const discountTypeDisplay = document.getElementById('discountTypeDisplay');
+                    discountTypeDisplay.textContent = discountType + ' ID Verification';
+                    
+                    // Update download link
+                    const downloadLink = document.getElementById('downloadId');
+                    downloadLink.href = imgSrc;
+                    
+                    // Update form's booking ID if available
+                    if (bookingId) {
+                        const discountBookingId = document.getElementById('discountBookingId');
+                        if (discountBookingId) {
+                            discountBookingId.value = bookingId;
+                        }
+                    }
+                });
+            }
+            
             // Handle export button
             const exportBtn = document.getElementById('exportBtn');
             if (exportBtn) {
@@ -674,8 +845,18 @@ if ($result && $result->num_rows > 0) {
                     exportPaymentReport();
                 });
             }
+            
+            // Add confirmation for dangerous actions
+            document.querySelectorAll('.btn-danger').forEach(function(button) {
+                button.addEventListener('click', function(e) {
+                    if (!confirm('Are you sure you want to reject this payment?')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                });
+            });
         });
-        
+
         // Function to export payment data to Excel
         function exportPaymentReport() {
             // Get table data
@@ -736,27 +917,17 @@ if ($result && $result->num_rows > 0) {
             // Export workbook
             XLSX.writeFile(wb, filename);
         }
-        
-        // Enable tooltips
-        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl)
-        });
-        
-        // Add confirmation for dangerous actions
-        document.querySelectorAll('.btn-danger').forEach(function(button) {
-            button.addEventListener('click', function(e) {
-                if (!confirm('Are you sure you want to reject this payment?')) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-            });
-        });
-        
+
         // Print payment receipt
         function printReceipt(bookingId) {
             window.open(`print_receipt.php?id=${bookingId}`, '_blank', 'width=800,height=600');
         }
+
+        // Enable tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
     </script>
 </body>
 </html>

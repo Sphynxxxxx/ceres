@@ -3,6 +3,7 @@ NEXT UPDATE
 UNWORKING SEARCH BOX (admin side)
 schedule
 routes
+payments
 
 create a profile.php
 remove the Announcement on the admin side
