@@ -106,6 +106,8 @@ try {
         $baseQuery .= " WHERE " . implode(" AND ", $whereConditions);
     }
     
+    $baseQuery .= " GROUP BY b.id";
+
     // Add ORDER BY clause
     $baseQuery .= " ORDER BY b.booking_date DESC";
     
@@ -223,12 +225,6 @@ try {
                     <a class="nav-link" href="payments_admin.php">
                         <i class="fas fa-money-check-alt"></i>
                         <span>Payments</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="announcements_admin.php">
-                        <i class="fas fa-bullhorn"></i>
-                        <span>Announcements</span>
                     </a>
                 </li>
             </ul>

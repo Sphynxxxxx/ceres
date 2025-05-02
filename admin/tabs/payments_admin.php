@@ -362,12 +362,6 @@ if ($result && $result->num_rows > 0) {
                         <span>Payments</span>
                     </a>
                 </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="announcements_admin.php">
-                        <i class="fas fa-bullhorn"></i>
-                        <span>Announcements</span>
-                    </a>
-                </li>
             </ul>
         </nav>
         <div class="content">
@@ -378,12 +372,12 @@ if ($result && $result->num_rows > 0) {
                         <i class="fas fa-bars"></i>
                     </button>
                     <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                        <form class="d-flex ms-auto" method="get" action="bookings_admin.php">
+                        <form class="d-flex ms-auto" method="get" action="payments_admin.php">
                             <div class="input-group">
                                 <input class="form-control" type="search" name="search" 
                                     placeholder="Search by name or email" 
                                     aria-label="Search"
-                                    value="<?php echo htmlspecialchars($search_query); ?>">
+                                    value="<?php echo htmlspecialchars($search); ?>">
                                 <button class="btn btn-outline-primary" type="submit">
                                     <i class="fas fa-search"></i>
                                 </button>

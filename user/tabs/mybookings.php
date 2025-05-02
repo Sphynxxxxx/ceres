@@ -60,11 +60,121 @@ if (isset($_POST['cancel_booking']) && isset($_POST['booking_id'])) {
     }
 }
 
+// Process booking cancellation with reason
+if (isset($_POST['cancel_booking_with_reason']) && isset($_POST['booking_id'])) {
+    $booking_id = $_POST['booking_id'];
+    $cancel_reason = isset($_POST['cancel_reason']) ? $_POST['cancel_reason'] : 'No reason provided';
+    
+    // If "Other" reason is selected, use the text from other_reason field
+    if ($cancel_reason === 'Other' && isset($_POST['other_reason']) && !empty($_POST['other_reason'])) {
+        $cancel_reason = 'Other: ' . $_POST['other_reason'];
+    }
+    
+    try {
+        // Verify the booking belongs to the current user and get fare from routes table
+        $verify_stmt = $conn->prepare("
+            SELECT 
+                b.id, 
+                b.booking_status, 
+                b.created_at, 
+                b.booking_date, 
+                r.fare
+            FROM 
+                bookings b
+            JOIN 
+                buses bs ON b.bus_id = bs.id
+            JOIN 
+                routes r ON bs.route_id = r.id
+            WHERE 
+                b.id = ? AND b.user_id = ?
+        ");
+        $verify_stmt->bind_param("ii", $booking_id, $user_id);
+        $verify_stmt->execute();
+        $verify_result = $verify_stmt->get_result();
+        $booking_data = $verify_result->fetch_assoc();
+        
+        if ($verify_result->num_rows === 1) {
+            // Check if already cancelled
+            if ($booking_data['booking_status'] === 'cancelled') {
+                $error_message = "This booking is already cancelled.";
+            } else {
+                // Calculate refund amount based on policy
+                $refund_amount = $booking_data['fare'];
+                $refund_status = 'pending';
+                $refund_note = "Full refund";
+
+                // Get current date and time
+                $now = new DateTime();
+                $bookingDateTime = new DateTime($booking_data['booking_date']);
+                $createdDateTime = new DateTime($booking_data['created_at']);
+                
+                // Calculate hours until departure
+                $departureInterval = $now->diff($bookingDateTime);
+                $hoursTillDeparture = ($departureInterval->days * 24) + $departureInterval->h;
+                
+                // Calculate hours since booking was created
+                $creationInterval = $now->diff($createdDateTime);
+                $hoursSinceCreation = ($creationInterval->days * 24) + $creationInterval->h + 
+                                     ($creationInterval->i / 60);
+                
+                // Apply refund policy
+                if ($hoursSinceCreation <= 1) {
+                    // Within 1 hour of booking - full refund (grace period)
+                    $refund_amount = $booking_data['fare'];
+                    $refund_note = "Full refund (1-hour grace period)";
+                } elseif ($hoursTillDeparture >= 48) {
+                    // More than 48 hours before departure - full refund
+                    $refund_amount = $booking_data['fare'];
+                    $refund_note = "Full refund (more than 48 hours before departure)";
+                } elseif ($hoursTillDeparture >= 24) {
+                    // Between 24-48 hours before departure - 50% refund
+                    $refund_amount = $booking_data['fare'] * 0.5;
+                    $refund_note = "50% refund (24-48 hours before departure)";
+                } else {
+                    // Less than 24 hours before departure - no refund
+                    $refund_amount = 0;
+                    $refund_status = 'denied';
+                    $refund_note = "No refund (less than 24 hours before departure)";
+                }
+                
+                // Update booking status to cancelled and store cancellation details
+                $cancel_stmt = $conn->prepare("UPDATE bookings SET 
+                                            booking_status = 'cancelled', 
+                                            cancel_reason = ?, 
+                                            cancelled_at = NOW(),
+                                            refund_status = ?,
+                                            refund_amount = ?,
+                                            refund_note = ?
+                                            WHERE id = ?");
+                $cancel_stmt->bind_param("ssdsi", $cancel_reason, $refund_status, $refund_amount, $refund_note, $booking_id);
+
+                if ($cancel_stmt->execute()) {
+                    $success_message = "Your booking has been successfully cancelled. A refund of ₱" . number_format($refund_amount, 2) . " will be processed.";
+                } else {
+                    $error_message = "Failed to cancel booking. Please try again.";
+                }
+                $cancel_stmt->close();
+            }
+        } else {
+            $error_message = "Invalid booking or you don't have permission to cancel this booking.";
+        }
+        $verify_stmt->close();
+    } catch (Exception $e) {
+        $error_message = "An error occurred: " . $e->getMessage();
+        error_log("Error cancelling booking: " . $e->getMessage());
+    }
+}
+
+// Add a function to check cancellation policy
+function canCancelBooking($bookingDate, $createdAt) {
+    return true;
+}
+
 // Fetch booking data for the current user with related information
 $bookings = [];
 try {
     $stmt = $conn->prepare("
-        SELECT 
+        SELECT DISTINCT
             b.id, 
             b.bus_id, 
             b.seat_number, 
@@ -91,6 +201,8 @@ try {
             schedules s ON b.bus_id = s.bus_id AND r.origin = s.origin AND r.destination = s.destination
         WHERE 
             b.user_id = ?
+        GROUP BY
+            b.id
         ORDER BY 
             b.booking_date DESC, 
             b.created_at DESC
@@ -123,9 +235,7 @@ try {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="../css/user.css" rel="stylesheet">
     <link href="../css/navfot.css" rel="stylesheet">
-
     <style>
-
         .text-muted {
             color: white !important;
         }
@@ -193,6 +303,7 @@ try {
             margin: 0 10px;
             color: #aaa;
         }
+        
     </style>
 </head>
 <body>
@@ -390,15 +501,11 @@ try {
 
                                             <?php if ($booking['booking_status'] !== 'cancelled'): ?>
                                                 <div class="booking-actions">
-                                                    
-                                                    <?php if (strtotime($booking['booking_date']) > time()): ?>
-                                                        <form method="post" onsubmit="return confirm('Are you sure you want to cancel this booking?');">
-                                                            <input type="hidden" name="booking_id" value="<?php echo $booking['id']; ?>">
-                                                            <button type="submit" name="cancel_booking" class="btn btn-outline-danger btn-sm">
-                                                                <i class="fas fa-times-circle me-1"></i> Cancel Booking
-                                                            </button>
-                                                        </form>
-                                                    <?php endif; ?>
+                                                    <button type="button" class="btn btn-outline-danger btn-sm cancel-booking-btn" 
+                                                            data-bs-toggle="modal" 
+                                                            data-bs-target="#cancelModal<?php echo $booking['id']; ?>">
+                                                        <i class="fas fa-times-circle me-1"></i> Cancel Booking
+                                                    </button>
                                                 </div>
                                             <?php endif; ?>
                                         </div>
@@ -411,6 +518,93 @@ try {
             </div>
         </div>
     </div>
+
+    <?php foreach ($bookings as $booking): ?>
+        <div class="modal fade" id="cancelModal<?php echo $booking['id']; ?>" tabindex="-1" 
+            aria-labelledby="cancelModalLabel<?php echo $booking['id']; ?>" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content bg-dark text-light">
+                    <div class="modal-header bg-danger text-white border-bottom border-secondary">
+                        <h5 class="modal-title" id="cancelModalLabel<?php echo $booking['id']; ?>">
+                            <i class="fas fa-times-circle me-2"></i>Cancel Booking #<?php echo $booking['id']; ?>
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="post">
+                        <div class="modal-body bg-dark">
+                            <div class="row mb-4">
+                                <div class="col-md-12">
+                                    <div class="card bg-dark border border-secondary shadow">
+                                        <div class="card-body">
+                                            <h6 class="card-title border-bottom border-secondary pb-2 text-warning">Booking Details</h6>
+                                            <div class="row">
+                                                <div class="col-md-6">
+                                                    <p><strong class="text-warning">Trip:</strong> <?php echo htmlspecialchars(ucfirst($booking['origin'])); ?> to <?php echo htmlspecialchars(ucfirst($booking['destination'])); ?></p>
+                                                    <p><strong class="text-warning">Date:</strong> <?php echo date('F d, Y', strtotime($booking['booking_date'])); ?></p>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <p><strong class="text-warning">Bus Type:</strong> <?php echo htmlspecialchars($booking['bus_type']); ?></p>
+                                                    <p><strong class="text-warning">Fare:</strong> ₱<?php echo number_format($booking['fare'], 2); ?></p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-warning" style="background-color: #2c2a1e; border-color: #665e33; color: #ffc107; border-radius: 8px;">
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="fas fa-exclamation-triangle me-2" style="font-size: 1.2rem;"></i>
+                                    <strong>Please note:</strong>
+                                </div>
+                                <ul class="mb-0 ps-4">
+                                    <li class="mb-2">Cancellation is available anytime before your trip</li>
+                                    <li>Cancelled bookings can't be reinstated</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="card bg-dark border border-secondary shadow mt-4">
+                                <div class="card-body">
+                                    <h6 class="card-title border-bottom border-secondary pb-2 text-warning">Reason for Cancellation</h6>
+                                    <div class="mb-3 mt-3">
+                                        <select class="form-select form-select-lg bg-dark text-light border-secondary" 
+                                                id="cancel_reason<?php echo $booking['id']; ?>" 
+                                                name="cancel_reason" required>
+                                            <option value="">Select a reason</option>
+                                            <option value="Change of plans">Change of plans</option>
+                                            <option value="Booking error">Booking error</option>
+                                            <option value="Found alternative transportation">Found alternative transportation</option>
+                                            <option value="Schedule conflict">Schedule conflict</option>
+                                            <option value="Weather concerns">Weather concerns</option>
+                                            <option value="Health issues">Health issues</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="mb-3" id="otherReasonDiv<?php echo $booking['id']; ?>" style="display: none;">
+                                        <textarea class="form-control bg-dark text-light border-secondary" 
+                                                id="other_reason<?php echo $booking['id']; ?>" 
+                                                name="other_reason" rows="3" 
+                                                placeholder="Please specify your reason"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <input type="hidden" name="booking_id" value="<?php echo $booking['id']; ?>">
+                        </div>
+                        <div class="modal-footer bg-dark border-top border-secondary">
+                            <button type="button" class="btn btn-outline-light btn-lg" data-bs-dismiss="modal">
+                                <i class="fas fa-times me-1"></i> Close
+                            </button>
+                            <button type="submit" name="cancel_booking_with_reason" class="btn btn-danger btn-lg">
+                                <i class="fas fa-check-circle me-1"></i> Confirm Cancellation
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    <?php endforeach; ?>
 
     <!-- Footer -->
     <footer class="footer">
@@ -445,10 +639,39 @@ try {
         </div>
     </footer>
 
+    <!-- Make sure this comes after jQuery and before your other scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    
     <script>
-        // Filter bookings by status
         document.addEventListener('DOMContentLoaded', function() {
+
+            if (typeof bootstrap !== 'undefined') {
+                console.log("Bootstrap is loaded correctly");
+                
+                // Initialize modals directly
+                document.querySelectorAll('.modal').forEach(function(modalEl) {
+                    var modal = new bootstrap.Modal(modalEl);
+                });
+                
+                // Attach manual click handlers to the cancel buttons
+                document.querySelectorAll('.cancel-booking-btn').forEach(function(button) {
+                    button.addEventListener('click', function() {
+                        var targetModalId = this.getAttribute('data-bs-target');
+                        var modalElement = document.querySelector(targetModalId);
+                        
+                        if (modalElement) {
+                            var modal = new bootstrap.Modal(modalElement);
+                            modal.show();
+                        } else {
+                            console.error("Modal element not found:", targetModalId);
+                        }
+                    });
+                });
+            } else {
+                console.error("Bootstrap is not loaded properly. Check your script includes.");
+            }
+            
+            // Filter bookings by status
             const filterButtons = document.querySelectorAll('.filter-btn');
             const bookingItems = document.querySelectorAll('.booking-item');
             
@@ -472,7 +695,77 @@ try {
                     });
                 });
             });
+            
+            // Initialize tooltips
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+            
+            // Show/hide "other reason" text area when "Other" is selected
+            const reasonSelects = document.querySelectorAll('select[name="cancel_reason"]');
+            reasonSelects.forEach(select => {
+                select.addEventListener('change', function() {
+                    const bookingId = this.id.replace('cancel_reason', '');
+                    const otherReasonDiv = document.getElementById('otherReasonDiv' + bookingId);
+                    
+                    if (this.value === 'Other') {
+                        otherReasonDiv.style.display = 'block';
+                        document.getElementById('other_reason' + bookingId).setAttribute('required', 'required');
+                    } else {
+                        otherReasonDiv.style.display = 'none';
+                        document.getElementById('other_reason' + bookingId).removeAttribute('required');
+                    }
+                });
+            });
+            
+            // Custom form validation for cancellation
+            const cancelForms = document.querySelectorAll('form');
+            cancelForms.forEach(form => {
+                form.addEventListener('submit', function(e) {
+                    if (this.querySelector('select[name="cancel_reason"]')) {
+                        const reasonSelect = this.querySelector('select[name="cancel_reason"]');
+                        const otherReason = this.querySelector('textarea[name="other_reason"]');
+                        
+                        if (reasonSelect.value === '') {
+                            e.preventDefault();
+                            alert('Please select a reason for cancellation');
+                            return false;
+                        }
+                        
+                        if (reasonSelect.value === 'Other' && otherReason && otherReason.value.trim() === '') {
+                            e.preventDefault();
+                            alert('Please specify your reason for cancellation');
+                            return false;
+                        }
+                        
+                        if (!confirm('Are you sure you want to cancel this booking? This action cannot be undone.')) {
+                            e.preventDefault();
+                            return false;
+                        }
+                    }
+                    
+                    return true;
+                });
+            });
         });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Show/hide other reason field when "Other" is selected
+            document.querySelectorAll('select[name="cancel_reason"]').forEach(select => {
+                select.addEventListener('change', function() {
+                    const bookingId = this.id.replace('cancel_reason', '');
+                    const otherReasonDiv = document.getElementById('otherReasonDiv' + bookingId);
+                    
+                    if (this.value === 'Other') {
+                        otherReasonDiv.style.display = 'block';
+                        document.getElementById('other_reason' + bookingId).setAttribute('required', 'required');
+                    } else {
+                        otherReasonDiv.style.display = 'none';
+                        document.getElementById('other_reason' + bookingId).removeAttribute('required');
+                    }
+                });
+            });
     </script>
 </body>
 </html>

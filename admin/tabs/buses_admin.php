@@ -662,12 +662,6 @@ if ($count_result && $count_result->num_rows > 0) {
                         <span>Payments</span>
                     </a>
                 </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="announcements_admin.php">
-                        <i class="fas fa-bullhorn"></i>
-                        <span>Announcements</span>
-                    </a>
-                </li>
             </ul>
         </nav>
 

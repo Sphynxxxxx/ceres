@@ -1,4 +1,5 @@
-NEXT UPDATE
+
+--NEED TO UPDATE--
 
 UNWORKING SEARCH BOX (admin side)
 schedule
@@ -6,21 +7,24 @@ routes
 payments
 
 create a profile.php
-remove the Announcement on the admin side
 
-user can cancel of its booking
+the admin.php 
 
-NEED TO FIX 
-on schedule.php the Book this bus button need to path on booking.php that automatic display on the Select your Route
+--NEED TO FIX--
+1. on schedule.php the Book this bus button need to path on booking.php that automatic display on the Select your Route
 like on when you click the book button on view Bus fleet
 
-NEED TO IMPROVE
-need to improve the payments_admin.php
-to display the discount id like on payment proof for verification of the id 
+2. in mybookings.php when Payment Method is on counter cannot refund
 
-and on the actions column, add that can also verify when you pay on gcash/paymaya like on the counter
+3. the admin.php sync all the function to connect the database
 
-NEED TO ADD
+--NEED TO IMPROVE--
+
+
+--NEED TO ADD--
 Bus Stop Locations (locations.php)
 Ticket Fares (fares.php)
 Need Help? (contact.php)
+
+--NEED TO UPDATE--
+the admin.php

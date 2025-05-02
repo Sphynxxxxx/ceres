@@ -261,12 +261,6 @@ $notifications = [
                         <span>Payments</span>
                     </a>
                 </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="announcements_admin.php">
-                        <i class="fas fa-bullhorn"></i>
-                        <span>Announcements</span>
-                    </a>
-                </li>
             </ul>
         </nav>
 
