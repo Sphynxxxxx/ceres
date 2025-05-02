@@ -1,14 +1,14 @@
 
 --NEED TO UPDATE--
 
-UNWORKING SEARCH BOX (admin side)
+1. UNWORKING SEARCH BOX (admin side)
 schedule
 routes
 payments
 
-create a profile.php
+2. create a profile.php
 
-the admin.php 
+3. On users_admin.php at the User details update the Booking History of the user to display all the history of its booking
 
 --NEED TO FIX--
 1. on schedule.php the Book this bus button need to path on booking.php that automatic display on the Select your Route
@@ -25,6 +25,3 @@ like on when you click the book button on view Bus fleet
 Bus Stop Locations (locations.php)
 Ticket Fares (fares.php)
 Need Help? (contact.php)
-
---NEED TO UPDATE--
-the admin.php
