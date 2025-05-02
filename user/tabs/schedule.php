@@ -90,6 +90,25 @@ try {
     error_log("Error fetching maintenance buses: " . $e->getMessage());
 }
 
+// Get buses with inactive status
+$inactive_buses = [];
+try {
+    $query = "SELECT id, bus_type, seat_capacity, plate_number, driver_name, conductor_name, route_name 
+              FROM buses 
+              WHERE status = 'Inactive'";
+    $result = $conn->query($query);
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $inactive_buses[$row['id']] = $row;
+        }
+    }
+} catch (Exception $e) {
+    error_log("Error fetching inactive buses: " . $e->getMessage());
+}
+
+// Count inactive buses
+$inactive_buses_count = count($inactive_buses);
+
 // Get active buses - this is what we'll display
 $active_buses = [];
 try {
@@ -260,8 +279,6 @@ function calculateArrivalTime($departureTime, $duration) {
     return date('h:i A', $arrivalTimestamp);
 }
 ?>
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -271,8 +288,7 @@ function calculateArrivalTime($departureTime, $duration) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="../css/navfot.css" rel="stylesheet">
-    
+    <link href="../css/navfot.css" rel="stylesheet">   
     <style>
         .date-nav {
             display: flex;
@@ -526,6 +542,11 @@ function calculateArrivalTime($departureTime, $duration) {
             border-color: #ffc107;
             color: #212529;
         }
+
+        .status-summary .inactive-icon {
+            background-color: #e9ecef;
+            color: #495057;
+        }
         
         /* Responsive adjustments */
         @media (max-width: 767.98px) {
@@ -607,6 +628,17 @@ function calculateArrivalTime($departureTime, $duration) {
                                     <div>
                                         <p class="status-count"><?php echo $maintenance_buses_count; ?></p>
                                         <p class="status-label">Buses Under Maintenance</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="status-summary d-flex align-items-center">
+                                    <div class="status-icon inactive-icon">
+                                        <i class="fas fa-ban"></i>
+                                    </div>
+                                    <div>
+                                        <p class="status-count"><?php echo $inactive_buses_count; ?></p>
+                                        <p class="status-label">Inactive Buses</p>
                                     </div>
                                 </div>
                             </div>
@@ -923,6 +955,48 @@ function calculateArrivalTime($departureTime, $duration) {
                                         </table>
                                     </div>
                                     <small class="text-muted">These buses will be back in service once maintenance is complete.</small>
+                                </div>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+
+                        <!-- Inactive Buses Information (if any) -->
+                        <?php if (count($inactive_buses) > 0): ?>
+                        <div class="mt-4">
+                            <div class="card">
+                                <div class="card-header bg-light">
+                                    <h5 class="mb-0"><i class="fas fa-ban me-2"></i>Inactive Buses</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="alert alert-secondary" role="alert">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        The following buses are currently inactive and not available for booking:
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-hover">
+                                            <thead>
+                                                <tr>
+                                                    <th>Bus ID</th>
+                                                    <th>Bus Type</th>
+                                                    <th>Plate Number</th>
+                                                    <th>Route</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php foreach ($inactive_buses as $bus_id => $bus): ?>
+                                                <tr>
+                                                    <td><?php echo htmlspecialchars($bus_id); ?></td>
+                                                    <td><?php echo htmlspecialchars($bus['bus_type']); ?></td>
+                                                    <td><?php echo htmlspecialchars($bus['plate_number']); ?></td>
+                                                    <td><?php echo htmlspecialchars($bus['route_name']); ?></td>
+                                                    <td><span class="badge bg-secondary">Inactive</span></td>
+                                                </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <small class="text-muted">These buses are temporarily inactive and not included in the current schedule.</small>
                                 </div>
                             </div>
                         </div>

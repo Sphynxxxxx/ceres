@@ -1311,7 +1311,6 @@ if ($current_bus_id > 0) {
                                                                         <li>Tap on "Scan QR Code"</li>
                                                                         <li>Scan the QR code shown here</li>
                                                                         <li>Enter the exact amount: ₱<span class="fare-amount">0.00</span></li>
-                                                                        <li>Add your booking reference in the notes</li>
                                                                         <li>Confirm the payment</li>
                                                                         <li>Take a screenshot of your payment receipt</li>
                                                                         <li>Upload the screenshot below</li>
@@ -1388,7 +1387,6 @@ if ($current_bus_id > 0) {
                                                                         <li>Select "Scan to Pay"</li>
                                                                         <li>Scan the QR code shown here</li>
                                                                         <li>Enter the exact amount: ₱<span class="fare-amount">0.00</span></li>
-                                                                        <li>Include your booking reference in the notes/description</li>
                                                                         <li>Complete the payment</li>
                                                                         <li>Take a screenshot of your payment confirmation</li>
                                                                         <li>Upload the screenshot below</li>
@@ -1546,7 +1544,7 @@ if ($current_bus_id > 0) {
                                             </div>
                                             
                                             <!-- Discount ID Proof Upload -->
-                                            <!--<div class="mb-3" id="discount-proof-section" style="display: none;">
+                                            <div class="mb-3" id="discount-proof-section" style="display: none;">
                                                 <label class="form-label fw-bold">Discount ID Proof</label>
                                                 <input type="file" name="discount_id_proof" id="discount_id_proof" class="form-control" accept="image/*,.pdf">
                                                 <small class="text-muted">Upload your student/senior/PWD ID (JPG, PNG, or PDF, max 5MB)</small>
@@ -1575,7 +1573,7 @@ if ($current_bus_id > 0) {
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </div>-->
+                                            </div>
                                             
                                             <!-- Payment Proof Upload (will be shown based on payment method) -->
                                             <div class="mb-3" id="payment-proof-section" style="display: none;">

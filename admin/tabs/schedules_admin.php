@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_schedule'])) {
         $fare_amount = isset($_POST['fare_amount']) ? floatval($_POST['fare_amount']) : 0;
         $trip_number = isset($_POST['trip_number']) ? trim($_POST['trip_number']) : null;
         $status = isset($_POST['status']) ? trim($_POST['status']) : 'active';
-        $recurring = isset($_POST['recurring']) ? 1 : 0;
+        $recurring = 1;
         
         // Validation
         $errors = [];
@@ -438,6 +438,12 @@ try {
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link" href="payments_admin.php">
+                        <i class="fas fa-money-check-alt"></i>
+                        <span>Payments</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link" href="announcements_admin.php">
                         <i class="fas fa-bullhorn"></i>
                         <span>Announcements</span>
@@ -666,11 +672,7 @@ try {
                                                 <td>#<?php echo $schedule['id']; ?></td>
                                                 <td>
                                                     <div class="fw-bold"><?php echo ucfirst(htmlspecialchars($schedule['origin'])); ?> → <?php echo ucfirst(htmlspecialchars($schedule['destination'])); ?></div>
-                                                    <?php if ($schedule['recurring']): ?>
                                                     <span class="badge bg-primary">Daily</span>
-                                                    <?php else: ?>
-                                                    <span class="badge bg-secondary">One-time</span>
-                                                    <?php endif; ?>
                                                 </td>
                                                 <td>
                                                     <span class="time-badge"><?php echo date('h:i A', strtotime($schedule['departure_time'])); ?></span>
@@ -821,13 +823,6 @@ try {
                                     <option value="completed">Completed</option>
                                 </select>
                             </div>
-                            <div class="col-md-6">
-                                <div class="form-check mt-4">
-                                    <input type="checkbox" class="form-check-input" id="recurring" name="recurring" value="1">
-                                    <label class="form-check-label" for="recurring">Daily Recurring Trip</label>
-                                    <div class="form-text">Check if this schedule repeats every day.</div>
-                                </div>
-                            </div>
                         </div>
                         
                         <input type="hidden" name="save_schedule" value="1">
@@ -925,12 +920,7 @@ try {
                                     <option value="completed">Completed</option>
                                 </select>
                             </div>
-                            <div class="col-md-6">
-                                <div class="form-check mt-4">
-                                    <input type="checkbox" class="form-check-input" id="edit_recurring" name="recurring" value="1">
-                                    <label class="form-check-label" for="edit_recurring">Daily Recurring Trip</label>
-                                </div>
-                            </div>
+    
                         </div>
                         
                         <input type="hidden" name="save_schedule" value="1">
@@ -968,7 +958,6 @@ try {
         </div>
     </div>
 
-    <!-- Bootstrap and jQuery Scripts -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     
@@ -1194,7 +1183,6 @@ try {
                     document.getElementById('edit_fare_amount').value = data.fare_amount;
                     document.getElementById('edit_trip_number').value = data.trip_number || '';
                     document.getElementById('edit_status').value = data.status;
-                    document.getElementById('edit_recurring').checked = data.recurring == 1;
                 })
                 .catch(error => {
                     console.error('Error fetching schedule data:', error);

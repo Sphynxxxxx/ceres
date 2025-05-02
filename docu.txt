@@ -4,5 +4,22 @@ UNWORKING SEARCH BOX (admin side)
 schedule
 routes
 
-NEED TO FIX (booking.php)
-need to fix the bug of contradict id discount id and the pay over the counter
+create a profile.php
+remove the Announcement on the admin side
+
+user can cancel of its booking
+
+NEED TO FIX 
+on schedule.php the Book this bus button need to path on booking.php that automatic display on the Select your Route
+like on when you click the book button on view Bus fleet
+
+NEED TO IMPROVE
+need to improve the payments_admin.php
+to display the discount id like on payment proof for verification of the id 
+
+and on the actions column, add that can also verify when you pay on gcash/paymaya like on the counter
+
+NEED TO ADD
+Bus Stop Locations (locations.php)
+Ticket Fares (fares.php)
+Need Help? (contact.php)

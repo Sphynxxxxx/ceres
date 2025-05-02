@@ -256,6 +256,12 @@ $notifications = [
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link" href="payments_admin.php">
+                        <i class="fas fa-money-check-alt"></i>
+                        <span>Payments</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link" href="announcements_admin.php">
                         <i class="fas fa-bullhorn"></i>
                         <span>Announcements</span>

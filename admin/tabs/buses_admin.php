@@ -28,8 +28,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $current_status = isset($_POST['current_status']) ? $_POST['current_status'] : '';
     
     if ($bus_id > 0 && !empty($current_status)) {
-        // Toggle the status
-        $new_status = ($current_status == 'Active') ? 'Under Maintenance' : 'Active';
+        // Determine the next status in the cycle
+        $new_status = '';
+        if ($current_status == 'Active') {
+            $new_status = 'Inactive';
+        } else if ($current_status == 'Inactive') {
+            $new_status = 'Under Maintenance';
+        } else { // Under Maintenance
+            $new_status = 'Active';
+        }
         
         // Update status in database
         $update_query = "UPDATE buses SET status = ? WHERE id = ?";
@@ -650,6 +657,12 @@ if ($count_result && $count_result->num_rows > 0) {
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link" href="payments_admin.php">
+                        <i class="fas fa-money-check-alt"></i>
+                        <span>Payments</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link" href="announcements_admin.php">
                         <i class="fas fa-bullhorn"></i>
                         <span>Announcements</span>
@@ -775,6 +788,21 @@ if ($count_result && $count_result->num_rows > 0) {
                                     </div>
                                     <div>
                                         <div class="h5">
+                                            <span class="badge bg-secondary">
+                                                <i class="fas fa-ban me-1"></i>
+                                                <?php 
+                                                $inactive_count = 0;
+                                                foreach ($buses as $bus) {
+                                                    if ($bus['status'] == 'Inactive') $inactive_count++;
+                                                }
+                                                echo $inactive_count;
+                                                ?>
+                                            </span>
+                                        </div>
+                                        <div class="small text-muted">Inactive</div>
+                                    </div>
+                                    <div>
+                                        <div class="h5">
                                             <span class="badge bg-warning text-dark">
                                                 <i class="fas fa-tools me-1"></i>
                                                 <?php 
@@ -821,7 +849,7 @@ if ($count_result && $count_result->num_rows > 0) {
                                         </div>
                                         <div>
                                             <h6 class="alert-heading mb-1">Travel Date Information</h6>
-                                            <p class="mb-0 small">Only active buses can be booked for travel dates. When a bus is set to <span class="badge bg-success">Active</span>, travelers can select dates for their journeys. Buses under <span class="badge bg-warning text-dark">Maintenance</span> are not available for booking until their status is changed.</p>
+                                            <p class="mb-0 small">Only active buses can be booked for travel dates. When a bus is set to <span class="badge bg-success">Active</span>, travelers can select dates for their journeys. Buses marked as <span class="badge bg-secondary">Inactive</span> or <span class="badge bg-warning text-dark">Under Maintenance</span> are not available for booking until their status is changed.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -880,7 +908,7 @@ if ($count_result && $count_result->num_rows > 0) {
                                             Conductor: <?= htmlspecialchars($bus['conductor_name']) ?>
                                         </td>
                                         <td>
-                                            <span class="badge bg-<?= ($bus['status'] == 'Active') ? 'success' : 'warning'; ?>">
+                                            <span class="badge bg-<?= ($bus['status'] == 'Active') ? 'success' : (($bus['status'] == 'Inactive') ? 'secondary' : 'warning'); ?>">
                                                 <?= htmlspecialchars($bus['status']) ?>
                                             </span>
                                         </td>
@@ -891,11 +919,11 @@ if ($count_result && $count_result->num_rows > 0) {
                                                         data-id="<?= $bus['id'] ?>" title="View Details" data-bs-toggle="tooltip">
                                                     <i class="fas fa-eye"></i>
                                                 </button>
-                                                <button type="button" class="btn btn-outline-success btn-sm toggle-status" 
+                                                <!--<button type="button" class="btn btn-outline-success btn-sm toggle-status" 
                                                         data-id="<?= $bus['id'] ?>" data-current-status="<?= $bus['status'] ?>" 
                                                         title="Toggle Status" data-bs-toggle="tooltip">
                                                     <i class="fas fa-exchange-alt"></i>
-                                                </button>
+                                                </button>-->
                                                 <button type="button" class="btn btn-outline-primary btn-sm edit-bus"
                                                         data-id="<?= $bus['id'] ?>" title="Edit Bus" data-bs-toggle="tooltip">
                                                     <i class="fas fa-edit"></i>
@@ -1029,6 +1057,7 @@ if ($count_result && $count_result->num_rows > 0) {
                             <label for="status" class="form-label">Status</label>
                             <select class="form-select" id="status" name="status">
                                 <option value="Active">Active</option>
+                                <option value="Inactive">Inactive</option>
                                 <option value="Under Maintenance">Under Maintenance</option>
                             </select>
                         </div>
@@ -1106,6 +1135,7 @@ if ($count_result && $count_result->num_rows > 0) {
                             <label for="edit_status" class="form-label">Status</label>
                             <select class="form-select" id="edit_status" name="status">
                                 <option value="Active">Active</option>
+                                <option value="Inactive">Inactive</option>
                                 <option value="Under Maintenance">Under Maintenance</option>
                             </select>
                         </div>
@@ -1323,12 +1353,24 @@ if ($count_result && $count_result->num_rows > 0) {
                 e.preventDefault();
                 const busId = this.getAttribute('data-id');
                 const currentStatus = this.getAttribute('data-current-status');
-                const newStatus = currentStatus === 'Active' ? 'Under Maintenance' : 'Active';
+                
+                // Determine next status in the cycle
+                let newStatus = '';
+                if (currentStatus === 'Active') {
+                    newStatus = 'Inactive';
+                } else if (currentStatus === 'Inactive') {
+                    newStatus = 'Under Maintenance';
+                } else { // Under Maintenance
+                    newStatus = 'Active';
+                }
                 
                 let message = 'Are you sure you want to change the bus status from ' + currentStatus + ' to ' + newStatus + '?';
                 
+                // Add appropriate warning message based on status change
                 if (currentStatus === 'Active') {
-                    message += '\n\nWARNING: This will disable travel date selection for this bus. Existing bookings will not be affected, but no new bookings can be made until the bus is active again.';
+                    message += '\n\nWARNING: This will mark the bus as Inactive. Existing bookings will not be affected, but the bus will no longer be available for travel.';
+                } else if (currentStatus === 'Inactive') {
+                    message += '\n\nThis will mark the bus as Under Maintenance, which indicates it is being repaired or serviced.';
                 } else {
                     message += '\n\nThis will enable travel date selection for this bus, allowing travelers to book tickets.';
                 }
@@ -1485,7 +1527,9 @@ if ($count_result && $count_result->num_rows > 0) {
                     const statusElement = document.getElementById('view_bus_status');
                     if (bus.status === 'Active') {
                         statusElement.innerHTML = '<span class="badge bg-success">Active</span>';
-                    } else {
+                    } else if (bus.status === 'Inactive') {
+                        statusElement.innerHTML = '<span class="badge bg-secondary">Inactive</span>';
+                    } else { // Under Maintenance
                         statusElement.innerHTML = '<span class="badge bg-warning text-dark">Under Maintenance</span>';
                     }
                     

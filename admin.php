@@ -24,7 +24,6 @@ try {
         $total_bookings = $row['total'];
     }
 } catch (Exception $e) {
-    // If table doesn't exist yet
     $total_bookings = 0;
 }
 
@@ -37,7 +36,6 @@ try {
         $today_revenue = $row['revenue'] ?? 0;
     }
 } catch (Exception $e) {
-    // If table doesn't exist yet
     $today_revenue = 0;
 }
 
@@ -50,7 +48,6 @@ try {
         $active_buses = $row['total'];
     }
 } catch (Exception $e) {
-    // If table doesn't exist yet
     $active_buses = 0;
 }
 
@@ -82,7 +79,6 @@ try {
         }
     }
 } catch (Exception $e) {
-    // Empty array if database tables don't exist yet
 }
 
 // Get upcoming schedules
@@ -172,6 +168,12 @@ $notification_count = count($notifications);
                     <a class="nav-link" href="admin/tabs/users_admin.php">
                         <i class="fas fa-users"></i>
                         <span>Users</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="admin/tabs/payments_admin.php">
+                        <i class="fas fa-money-check-alt"></i>
+                        <span>Payments</span>
                     </a>
                 </li>
                 <li class="nav-item">
@@ -480,19 +482,15 @@ $notification_count = count($notifications);
                 
                 // Update stats trends
                 if (document.getElementById('booking-trend')) {
-                    document.getElementById('booking-trend').textContent = "12% increase";
                 }
                 
                 if (document.getElementById('revenue-trend')) {
-                    document.getElementById('revenue-trend').textContent = "8% increase";
                 }
                 
                 if (document.getElementById('buses-status')) {
-                    document.getElementById('buses-status').textContent = "All operational";
                 }
                 
                 if (document.getElementById('users-trend')) {
-                    document.getElementById('users-trend').textContent = "24 new today";
                 }
             } catch (error) {
                 console.error("Error fetching stats:", error);

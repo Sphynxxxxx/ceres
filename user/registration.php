@@ -264,7 +264,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <?php if ($registration_success): ?>
                     <div class="alert alert-success">
                         <h4 class="alert-heading">Registration Successful!</h4>
-                        <p>Your account has been created successfully. You can now <a href="login.php" class="alert-link">login</a> to your account.</p>
+                        <div class="alert alert-success" role="alert">
+                            <p>Your account has been created successfully. Redirecting to <a href="login.php" class="alert-link">login</a> page...</p>
+                        </div>
+                        <script>
+                            setTimeout(function() {
+                                window.location.href = "login.php";
+                            }, 1000);
+                        </script>
+
                     </div>
                 <?php elseif (!empty($errors)): ?>
                     <div class="alert alert-danger">
