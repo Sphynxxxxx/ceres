@@ -78,6 +78,7 @@ if (isset($_POST['cancel_booking_with_reason']) && isset($_POST['booking_id'])) 
                 b.booking_status, 
                 b.created_at, 
                 b.booking_date, 
+                b.payment_method,
                 r.fare
             FROM 
                 bookings b
@@ -137,7 +138,7 @@ if (isset($_POST['cancel_booking_with_reason']) && isset($_POST['booking_id'])) 
                     $refund_note = "No refund (less than 24 hours before departure)";
                 }
                 
-                // Update booking status to cancelled and store cancellation details
+                // booking status to cancelled and store cancellation details
                 $cancel_stmt = $conn->prepare("UPDATE bookings SET 
                                             booking_status = 'cancelled', 
                                             cancel_reason = ?, 
@@ -149,7 +150,11 @@ if (isset($_POST['cancel_booking_with_reason']) && isset($_POST['booking_id'])) 
                 $cancel_stmt->bind_param("ssdsi", $cancel_reason, $refund_status, $refund_amount, $refund_note, $booking_id);
 
                 if ($cancel_stmt->execute()) {
-                    $success_message = "Your booking has been successfully cancelled. A refund of ₱" . number_format($refund_amount, 2) . " will be processed.";
+                    if (strtolower($booking_data['payment_method']) === 'pay over the counter' || strtolower($booking_data['payment_method']) === 'counter') {
+                        $success_message = "Your booking has been successfully cancelled.";
+                    } else {
+                        $success_message = "Your booking has been successfully cancelled. A refund of ₱" . number_format($refund_amount, 2) . " will be processed.";
+                    }
                 } else {
                     $error_message = "Failed to cancel booking. Please try again.";
                 }
@@ -165,12 +170,11 @@ if (isset($_POST['cancel_booking_with_reason']) && isset($_POST['booking_id'])) 
     }
 }
 
-// Add a function to check cancellation policy
+// function to check cancellation policy
 function canCancelBooking($bookingDate, $createdAt) {
     return true;
 }
 
-// Fetch booking data for the current user with related information
 $bookings = [];
 try {
     $stmt = $conn->prepare("
@@ -204,6 +208,11 @@ try {
         GROUP BY
             b.id
         ORDER BY 
+            CASE 
+                WHEN b.booking_status = 'confirmed' THEN 1
+                WHEN b.booking_status = 'cancelled' THEN 2
+                ELSE 3
+            END,
             b.booking_date DESC, 
             b.created_at DESC
     ");
@@ -329,6 +338,12 @@ try {
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="booking.php">Book Ticket</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="locations.php">Locations</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="fares.php">Fares</a>
                     </li>
                 </ul>
             </div>

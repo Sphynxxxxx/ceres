@@ -1,5 +1,4 @@
 <?php
-
 header('Content-Type: application/json');
 require_once "config.php";
 
@@ -14,23 +13,24 @@ $response = [
 $date_condition = '';
 switch($period) {
     case '7days':
-        $date_condition = "DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
+        $date_condition = "DATE(b.created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
         break;
     case '30days':
-        $date_condition = "DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+        $date_condition = "DATE(b.created_at) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
         break;
     case '90days':
-        $date_condition = "DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)";
+        $date_condition = "DATE(b.created_at) >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)";
         break;
     default:
-        $date_condition = "DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
+        $date_condition = "DATE(b.created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
 }
 
-// Get booking statistics
-$query = "SELECT DATE(created_at) as date, COUNT(*) as count 
-          FROM bookings 
+// Get booking statistics (daily)
+$query = "SELECT DATE(b.created_at) as date, COUNT(*) as count 
+          FROM bookings b
           WHERE $date_condition
-          GROUP BY DATE(created_at)
+          AND b.booking_status = 'confirmed'
+          GROUP BY DATE(b.created_at)
           ORDER BY date ASC";
 
 $result = $conn->query($query);
@@ -44,11 +44,14 @@ if ($result) {
 }
 
 // Get popular routes
-$query = "SELECT CONCAT(b.origin, ' - ', b.destination) as route, 
-          COUNT(*) as count 
-          FROM bookings bk
-          JOIN buses b ON bk.bus_id = b.id
-          GROUP BY b.origin, b.destination
+$query = "SELECT CONCAT(r.origin, ' - ', r.destination) as route, 
+          COUNT(*) as count,
+          SUM(r.fare) as total_revenue
+          FROM bookings b
+          JOIN buses bus ON b.bus_id = bus.id
+          JOIN routes r ON bus.route_id = r.id
+          WHERE b.payment_status = 'verified'
+          GROUP BY r.origin, r.destination
           ORDER BY count DESC
           LIMIT 5";
 
@@ -57,29 +60,45 @@ if ($result) {
     while ($row = $result->fetch_assoc()) {
         $response['popularRoutes'][] = [
             'route' => $row['route'],
-            'count' => (int)$row['count']
+            'count' => (int)$row['count'],
+            'revenue' => (float)$row['total_revenue']
         ];
     }
 }
 
+// Daily booking trend (today vs yesterday)
 $query = "SELECT 
-    (SELECT COUNT(*) FROM bookings WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())) as current_month,
-    (SELECT COUNT(*) FROM bookings WHERE MONTH(created_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) AND YEAR(created_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))) as last_month";
+    (SELECT COUNT(*) FROM bookings 
+     WHERE DATE(created_at) = CURDATE()) as today,
+     
+    (SELECT COUNT(*) FROM bookings 
+     WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)) as yesterday";
 
 $result = $conn->query($query);
 if ($result) {
     $data = $result->fetch_assoc();
-    if ($data['last_month'] > 0) {
-        $response['trends']['bookingTrend'] = round((($data['current_month'] - $data['last_month']) / $data['last_month']) * 100, 1);
+    if ($data['yesterday'] > 0) {
+        $response['trends']['bookingTrend'] = round((($data['today'] - $data['yesterday']) / $data['yesterday']) * 100, 1);
     } else {
-        $response['trends']['bookingTrend'] = $data['current_month'] > 0 ? 100 : 0;
+        $response['trends']['bookingTrend'] = $data['today'] > 0 ? 100 : 0;
     }
 }
 
-// Revenue trend (today vs yesterday)
+// Daily revenue trend (today vs yesterday)
 $query = "SELECT 
-    (SELECT COALESCE(SUM(fare), 0) FROM bookings WHERE DATE(created_at) = CURDATE()) as today,
-    (SELECT COALESCE(SUM(fare), 0) FROM bookings WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)) as yesterday";
+    (SELECT COALESCE(SUM(r.fare), 0) 
+     FROM bookings b
+     JOIN buses bus ON b.bus_id = bus.id
+     JOIN routes r ON bus.route_id = r.id
+     WHERE b.payment_status = 'verified'
+     AND DATE(b.created_at) = CURDATE()) as today,
+     
+    (SELECT COALESCE(SUM(r.fare), 0) 
+     FROM bookings b
+     JOIN buses bus ON b.bus_id = bus.id
+     JOIN routes r ON bus.route_id = r.id
+     WHERE b.payment_status = 'verified'
+     AND DATE(b.created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)) as yesterday";
 
 $result = $conn->query($query);
 if ($result) {
@@ -96,21 +115,24 @@ $query = "SELECT COUNT(*) as active FROM buses WHERE status = 'Active'";
 $result = $conn->query($query);
 if ($result) {
     $data = $result->fetch_assoc();
-    $response['trends']['busesActive'] = $data['active'];
+    $response['trends']['busesActive'] = (int)$data['active'];
 }
 
-// Users trend (this month vs last month)
+// Daily users trend (registered today vs yesterday)
 $query = "SELECT 
-    (SELECT COUNT(*) FROM users WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())) as current_month,
-    (SELECT COUNT(*) FROM users WHERE MONTH(created_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) AND YEAR(created_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))) as last_month";
+    (SELECT COUNT(*) FROM users 
+     WHERE DATE(created_at) = CURDATE()) as today,
+     
+    (SELECT COUNT(*) FROM users 
+     WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)) as yesterday";
 
 $result = $conn->query($query);
 if ($result) {
     $data = $result->fetch_assoc();
-    if ($data['last_month'] > 0) {
-        $response['trends']['usersTrend'] = round((($data['current_month'] - $data['last_month']) / $data['last_month']) * 100, 1);
+    if ($data['yesterday'] > 0) {
+        $response['trends']['usersTrend'] = round((($data['today'] - $data['yesterday']) / $data['yesterday']) * 100, 1);
     } else {
-        $response['trends']['usersTrend'] = $data['current_month'] > 0 ? 100 : 0;
+        $response['trends']['usersTrend'] = $data['today'] > 0 ? 100 : 0;
     }
 }
 

@@ -11,7 +11,7 @@ $admin_name = "Administrator";
 
 // Fetch dashboard statistics
 $total_bookings = 0;
-$today_revenue = 0;
+$total_revenue = 0;
 $active_buses = 0;
 $registered_users = 0;
 
@@ -27,19 +27,42 @@ try {
     $total_bookings = 0;
 }
 
-// Today's revenue
+// Total revenue
+$total_revenue = 0;
+$today_revenue = 0;
+$today = date('Y-m-d');
+
 try {
-    $query = "SELECT SUM(fare) as revenue FROM bookings WHERE DATE(created_at) = CURDATE()";
+    // Calculate total revenue (all verified payments)
+    $query = "SELECT SUM(r.fare) as total_revenue 
+              FROM bookings b 
+              JOIN buses bus ON b.bus_id = bus.id 
+              JOIN routes r ON bus.route_id = r.id 
+              WHERE b.payment_status = 'verified'";
     $result = $conn->query($query);
     if ($result && $result->num_rows > 0) {
         $row = $result->fetch_assoc();
-        $today_revenue = $row['revenue'] ?? 0;
+        $total_revenue = $row['total_revenue'] ? $row['total_revenue'] : 0;
+    }
+    
+    // Calculate today's revenue (verified payments for today)
+    $query = "SELECT SUM(r.fare) as today_revenue 
+              FROM bookings b 
+              JOIN buses bus ON b.bus_id = bus.id 
+              JOIN routes r ON bus.route_id = r.id 
+              WHERE b.payment_status = 'verified' 
+              AND DATE(b.created_at) = '$today'";
+    $result = $conn->query($query);
+    if ($result && $result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        $today_revenue = $row['today_revenue'] ? $row['today_revenue'] : 0;
     }
 } catch (Exception $e) {
+    $total_revenue = 0;
     $today_revenue = 0;
 }
 
-// Active buses - Fixed query for correct status
+// Active buses 
 try {
     $query = "SELECT COUNT(*) as total FROM buses WHERE status = 'Active'";
     $result = $conn->query($query);
@@ -222,9 +245,9 @@ try {
                                 <div class="card-body">
                                     <div class="d-flex justify-content-between align-items-center">
                                         <div>
-                                            <h6 class="text-muted">Today's Revenue</h6>
-                                            <h3 class="mb-0">₱<?php echo number_format($today_revenue, 2); ?></h3>
-                                            <?php if($today_revenue > 0): ?>
+                                            <h6 class="text-muted">Total Revenue</h6>
+                                            <h3 class="mb-0">₱<?php echo number_format($total_revenue, 2); ?></h3>
+                                            <?php if($total_revenue > 0): ?>
                                             <p class="text-success mb-0"><i class="fas fa-arrow-up me-1"></i>
                                                 <span id="revenue-trend">Loading...</span>
                                             </p>
@@ -465,6 +488,7 @@ try {
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // Toggle sidebar
@@ -497,69 +521,136 @@ try {
                         borderColor: 'rgba(54, 162, 235, 1)',
                         borderWidth: 2,
                         tension: 0.3,
-                        fill: true
+                        fill: true,
+                        pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                        pointBorderColor: '#fff',
+                        pointHoverBackgroundColor: '#fff',
+                        pointHoverBorderColor: 'rgba(54, 162, 235, 1)'
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        },
                         y: {
                             beginAtZero: true,
                             ticks: {
-                                precision: 0
+                                precision: 0,
+                                stepSize: 1
                             }
                         }
                     },
                     plugins: {
                         legend: {
                             display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Bookings: ${context.parsed.y}`;
+                                }
+                            }
+                        },
+                        // Add data labels plugin
+                        datalabels: {
+                            display: true,
+                            align: 'top',
+                            offset: 10,
+                            backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                            borderRadius: 4,
+                            color: 'white',
+                            font: {
+                                weight: 'bold'
+                            },
+                            formatter: function(value, context) {
+                                // Calculate percentage change from previous day
+                                const dataIndex = context.dataIndex;
+                                const dataset = context.dataset.data;
+                                
+                                if (dataIndex === 0) {
+                                    return value; // First data point, no previous value
+                                }
+                                
+                                const previousValue = dataset[dataIndex - 1];
+                                let percentageChange = 0;
+                                
+                                if (previousValue > 0) {
+                                    percentageChange = ((value - previousValue) / previousValue) * 100;
+                                } else {
+                                    percentageChange = value > 0 ? 100 : 0;
+                                }
+                                
+                                const sign = percentageChange >= 0 ? '+' : '';
+                                return `${value} (${sign}${percentageChange.toFixed(1)}%)`;
+                            }
                         }
                     }
-                }
+                },
+                plugins: [ChartDataLabels]
             });
         }
 
         // Popular Routes Chart
         const routesCanvas = document.getElementById('routesChart');
         if (routesCanvas) {
-            const routesCtx = routesCanvas.getContext('2d');
-            routesChart = new Chart(routesCtx, {
-                type: 'doughnut',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        data: [],
-                        backgroundColor: [
-                            'rgba(255, 99, 132, 0.7)',
-                            'rgba(54, 162, 235, 0.7)',
-                            'rgba(255, 206, 86, 0.7)',
-                            'rgba(75, 192, 192, 0.7)',
-                            'rgba(153, 102, 255, 0.7)'
-                        ],
-                        borderColor: [
-                            'rgba(255, 99, 132, 1)',
-                            'rgba(54, 162, 235, 1)',
-                            'rgba(255, 206, 86, 1)',
-                            'rgba(75, 192, 192, 1)',
-                            'rgba(153, 102, 255, 1)'
-                        ],
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                boxWidth: 12
+            try {
+                const routesCtx = routesCanvas.getContext('2d');
+                routesChart = new Chart(routesCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            data: [],
+                            backgroundColor: [
+                                'rgba(255, 99, 132, 0.7)',
+                                'rgba(54, 162, 235, 0.7)',
+                                'rgba(255, 206, 86, 0.7)',
+                                'rgba(75, 192, 192, 0.7)',
+                                'rgba(153, 102, 255, 0.7)'
+                            ],
+                            borderColor: [
+                                'rgba(255, 99, 132, 1)',
+                                'rgba(54, 162, 235, 1)',
+                                'rgba(255, 206, 86, 1)',
+                                'rgba(75, 192, 192, 1)',
+                                'rgba(153, 102, 255, 1)'
+                            ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    boxWidth: 12
+                                }
+                            },
+                            // Add empty data message
+                            emptyData: {
+                                text: 'No data available',
+                                color: '#999',
+                                fontStyle: 'italic',
+                                display: true
                             }
                         }
                     }
-                }
-            });
+                });
+
+                // Set empty data state initially
+                routesChart.data.labels = ['No data'];
+                routesChart.data.datasets[0].data = [1]; // Need at least 1 value for doughnut chart
+                routesChart.update();
+            } catch (e) {
+                console.error("Routes chart initialization error:", e);
+            }
         }
 
         // Fetch Dashboard Data
@@ -567,12 +658,21 @@ try {
             try {
                 const response = await fetch(`backend/connections/get_stats_trends.php?period=${period}`);
                 const data = await response.json();
+                console.log("API Response:", data);
                 
                 // Update booking stats chart
                 if (data.bookingStats && bookingStatsChart) {
+                    // Format dates properly
+                    const formattedData = data.bookingStats.map(item => ({
+                        x: item.date, // The actual date string from your database
+                        y: item.count
+                    }));
+                    
                     bookingStatsChart.data.labels = data.bookingStats.map(item => item.date);
                     bookingStatsChart.data.datasets[0].data = data.bookingStats.map(item => item.count);
                     bookingStatsChart.update();
+                } else {
+                    console.log("Booking stats data missing or chart not initialized");
                 }
                 
                 // Update popular routes chart
@@ -587,7 +687,7 @@ try {
                     if (document.getElementById('booking-trend')) {
                         const bookingTrend = data.trends.bookingTrend;
                         const bookingTrendElement = document.getElementById('booking-trend');
-                        bookingTrendElement.textContent = `${Math.abs(bookingTrend)}% from last month`;
+                        bookingTrendElement.textContent = `${Math.abs(bookingTrend)}% from yesterday`;
                         bookingTrendElement.parentElement.className = bookingTrend >= 0 ? 'text-success mb-0' : 'text-danger mb-0';
                         bookingTrendElement.parentElement.innerHTML = `<i class="fas fa-arrow-${bookingTrend >= 0 ? 'up' : 'down'} me-1"></i>` + bookingTrendElement.outerHTML;
                     }
@@ -607,7 +707,7 @@ try {
                     if (document.getElementById('users-trend')) {
                         const usersTrend = data.trends.usersTrend;
                         const usersTrendElement = document.getElementById('users-trend');
-                        usersTrendElement.textContent = `${Math.abs(usersTrend)}% this month`;
+                        usersTrendElement.textContent = `${Math.abs(usersTrend)}% from yesterday`;
                         usersTrendElement.parentElement.className = usersTrend >= 0 ? 'text-success mb-0' : 'text-danger mb-0';
                         usersTrendElement.parentElement.innerHTML = `<i class="fas fa-arrow-${usersTrend >= 0 ? 'up' : 'down'} me-1"></i>` + usersTrendElement.outerHTML;
                     }

@@ -22,7 +22,7 @@ $sql_params = [];
 
 // Make sure your base query includes the discount_id_proof field:
 $base_query = "SELECT b.id, b.booking_reference, b.payment_method, b.payment_status, b.payment_proof_status, 
-               b.payment_proof, b.payment_proof_timestamp, b.created_at, 
+               b.payment_proof, b.payment_proof_timestamp, b.created_at, b.booking_status,
                u.first_name, u.last_name, b.trip_number, 
                r.origin, r.destination, r.fare, b.discount_type, b.discount_id_proof, b.seat_number 
                FROM bookings b 
@@ -32,8 +32,13 @@ $base_query = "SELECT b.id, b.booking_reference, b.payment_method, b.payment_sta
 
 // Add filters
 if (!empty($status_filter)) {
-    $sql_conditions[] = "b.payment_status = ?";
-    $sql_params[] = $status_filter;
+    if ($status_filter === 'cancelled') {
+        $sql_conditions[] = "b.booking_status = ?";
+        $sql_params[] = 'cancelled';
+    } else {
+        $sql_conditions[] = "b.payment_status = ?";
+        $sql_params[] = $status_filter;
+    }
 }
 
 if (!empty($payment_method_filter)) {
@@ -176,7 +181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // Prepare and execute the main query
 $stmt = $conn->prepare($query);
 if (!empty($sql_params)) {
-    $types = str_repeat("s", count($sql_params) - 2) . "ii"; // All strings except for LIMIT params which are integers
+    $types = str_repeat("s", count($sql_params) - 2) . "ii"; 
     $stmt->bind_param($types, ...$sql_params);
 }
 $stmt->execute();
@@ -189,7 +194,7 @@ while ($row = $result->fetch_assoc()) {
 // Count total records for pagination
 $stmt_count = $conn->prepare($count_query);
 if (!empty($sql_conditions)) {
-    $types = str_repeat("s", count($sql_params) - 2); // Exclude LIMIT parameters
+    $types = str_repeat("s", count($sql_params) - 2); 
     if (!empty($types)) {
         $stmt_count->bind_param($types, ...array_slice($sql_params, 0, count($sql_params) - 2));
     }
@@ -244,13 +249,27 @@ if ($result && $result->num_rows > 0) {
     $rejected_payments = $result->fetch_assoc()['total'];
 }
 
+// Cancelled bookings
+$cancelled_bookings = 0;
+$query = "SELECT COUNT(*) as total FROM bookings WHERE booking_status = 'cancelled'";
+$result = $conn->query($query);
+if ($result && $result->num_rows > 0) {
+    $cancelled_bookings = $result->fetch_assoc()['total'];
+}
+
 // Calculate revenue from verified payments
 $total_revenue = 0;
-$query = "SELECT SUM(r.fare) as total_revenue 
+$query = "SELECT SUM(
+            CASE 
+                WHEN b.discount_type IN ('student', 'senior', 'pwd') THEN r.fare * 0.8
+                ELSE r.fare
+            END
+          ) as total_revenue 
           FROM bookings b 
           JOIN buses bus ON b.bus_id = bus.id 
           JOIN routes r ON bus.route_id = r.id 
-          WHERE b.payment_status = 'verified'";
+          WHERE b.payment_status = 'verified' 
+          AND b.booking_status != 'cancelled'";
 $result = $conn->query($query);
 if ($result && $result->num_rows > 0) {
     $row = $result->fetch_assoc();
@@ -421,7 +440,7 @@ if ($result && $result->num_rows > 0) {
                             <div class="card-body">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <h6 class="text-white-50">Total Payments</h6>
+                                        <h6 class="text-dark">Total Payments</h6>
                                         <h3 class="mb-0"><?php echo number_format($total_payments); ?></h3>
                                     </div>
                                     <div>
@@ -437,7 +456,7 @@ if ($result && $result->num_rows > 0) {
                             <div class="card-body">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <h6 class="text-white-50">Verified Payments</h6>
+                                        <h6 class="text-dark">Verified Payments</h6>
                                         <h3 class="mb-0"><?php echo number_format($verified_payments); ?></h3>
                                     </div>
                                     <div>
@@ -463,13 +482,29 @@ if ($result && $result->num_rows > 0) {
                             </div>
                         </div>
                     </div>
+
+                    <div class="col-xl-3 col-md-6">
+                        <div class="card stats-card mb-4 bg-dark text-white">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="text-white-50">Cancelled Bookings</h6>
+                                        <h3 class="mb-0"><?php echo number_format($cancelled_bookings); ?></h3>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-ban"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     
                     <div class="col-xl-3 col-md-6">
                         <div class="card stats-card mb-4 bg-info text-white">
                             <div class="card-body">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <h6 class="text-white-50">Total Revenue</h6>
+                                        <h6 class="text-dark">Total Revenue</h6>
                                         <h3 class="mb-0">₱<?php echo number_format($total_revenue, 2); ?></h3>
                                     </div>
                                     <div>
@@ -492,6 +527,7 @@ if ($result && $result->num_rows > 0) {
                                 <option value="awaiting_verification" <?php if ($status_filter === 'awaiting_verification') echo 'selected'; ?>>Awaiting Verification</option>
                                 <option value="verified" <?php if ($status_filter === 'verified') echo 'selected'; ?>>Verified</option>
                                 <option value="rejected" <?php if ($status_filter === 'rejected') echo 'selected'; ?>>Rejected</option>
+                                <option value="cancelled" <?php if ($status_filter === 'cancelled') echo 'selected'; ?>>Cancelled</option>
                             </select>
                         </div>
                         
@@ -588,7 +624,9 @@ if ($result && $result->num_rows > 0) {
                                                 <td><?php echo ucfirst(htmlspecialchars($payment['payment_method'] ?? 'N/A')); ?></td>
                                                 <td><?php echo date('M d, Y g:i A', strtotime($payment['created_at'])); ?></td>
                                                 <td>
-                                                    <?php if ($payment['payment_status'] == 'verified'): ?>
+                                                    <?php if ($payment['booking_status'] == 'cancelled'): ?>
+                                                        <span class="badge bg-dark">Cancelled</span>
+                                                    <?php elseif ($payment['payment_status'] == 'verified'): ?>
                                                         <span class="badge bg-success">Verified</span>
                                                     <?php elseif ($payment['payment_status'] == 'pending'): ?>
                                                         <span class="badge bg-warning text-dark">Pending</span>
@@ -641,7 +679,9 @@ if ($result && $result->num_rows > 0) {
                                                     <?php endif; ?>
                                                 </td>
                                                 <td>
-                                                    <?php if ($payment['payment_status'] == 'awaiting_verification' || $payment['payment_status'] == 'pending' || $payment['payment_status'] == 'awaiting_verificatio'): ?>
+                                                    <?php if ($payment['booking_status'] == 'cancelled'): ?>
+                                                        <span class="text-muted">Booking Cancelled</span>
+                                                    <?php elseif ($payment['payment_status'] == 'awaiting_verification' || $payment['payment_status'] == 'pending' || $payment['payment_status'] == 'awaiting_verificatio'): ?>
                                                         <div class="d-flex flex-column gap-2">
                                                             <form method="post" class="mb-1">
                                                                 <input type="hidden" name="booking_id" value="<?php echo $payment['id']; ?>">

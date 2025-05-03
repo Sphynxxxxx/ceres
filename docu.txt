@@ -1,13 +1,9 @@
 
 --NEED TO UPDATE--
-the Today's Revenue (admin.php) need to functions same with
-Booking Statistics
-Popular Routes
 
 
 --NEED TO FIX--
 
-mybookings.php when Payment Method is on counter cannot refund
 
 --NEED TO IMPROVE--
 
