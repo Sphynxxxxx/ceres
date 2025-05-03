@@ -414,6 +414,9 @@ $campus_stops = [
                     <li class="nav-item">
                         <a class="nav-link active" href="locations.php">Locations</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="fares.php">Fares</a>
+                    </li>
                 </ul>
             </div>
         </div>

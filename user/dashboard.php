@@ -87,6 +87,12 @@ try {
                     <li class="nav-item">
                         <a class="nav-link" href="tabs/booking.php">Book Ticket</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="tabs/locations.php">Locations</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="tabs/fares.php">Fares</a>
+                    </li>
                 </ul>
             </div>
         </div>

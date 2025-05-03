@@ -7,7 +7,7 @@ if (session_status() == PHP_SESSION_NONE) {
 require_once "backend/connections/config.php";
 
 $admin_id = -1;
-$admin_name = "Administartor";
+$admin_name = "Administrator";
 
 // Fetch dashboard statistics
 $total_bookings = 0;
@@ -39,9 +39,9 @@ try {
     $today_revenue = 0;
 }
 
-// Active buses
+// Active buses - Fixed query for correct status
 try {
-    $query = "SELECT COUNT(*) as total FROM buses WHERE status = 'active'";
+    $query = "SELECT COUNT(*) as total FROM buses WHERE status = 'Active'";
     $result = $conn->query($query);
     if ($result && $result->num_rows > 0) {
         $row = $result->fetch_assoc();
@@ -60,17 +60,17 @@ try {
         $registered_users = $row['total'];
     }
 } catch (Exception $e) {
-    // If table doesn't exist yet
     $registered_users = 0;
 }
 
-// Get recent bookings
+// Get recent bookings - Fixed query to use buses table for route info
 $recent_bookings = [];
 try {
-    $query = "SELECT b.id, u.first_name, u.last_name, r.origin, r.destination, b.travel_date, b.status 
+    $query = "SELECT b.id, u.first_name, u.last_name, 
+              bs.origin, bs.destination, b.booking_date as travel_date, b.booking_status as status 
               FROM bookings b 
               JOIN users u ON b.user_id = u.id 
-              JOIN routes r ON b.route_id = r.id 
+              JOIN buses bs ON b.bus_id = bs.id 
               ORDER BY b.created_at DESC LIMIT 10";
     $result = $conn->query($query);
     if ($result && $result->num_rows > 0) {
@@ -79,16 +79,17 @@ try {
         }
     }
 } catch (Exception $e) {
+    // Handle error
 }
 
-// Get upcoming schedules
+// Get upcoming schedules - Fixed for recurring schedules
 $upcoming_schedules = [];
 try {
-    $query = "SELECT s.id, r.origin, r.destination, s.departure_time, s.arrival_time, b.name as bus_name 
+    $query = "SELECT s.id, s.origin, s.destination, s.departure_time, s.arrival_time, 
+              b.bus_type as bus_name, s.trip_number
               FROM schedules s 
-              JOIN routes r ON s.route_id = r.id 
               JOIN buses b ON s.bus_id = b.id 
-              WHERE s.departure_time > NOW() 
+              WHERE s.status = 'active'
               ORDER BY s.departure_time ASC LIMIT 5";
     $result = $conn->query($query);
     if ($result && $result->num_rows > 0) {
@@ -97,22 +98,8 @@ try {
         }
     }
 } catch (Exception $e) {
-    // Empty array if database tables don't exist yet
 }
 
-// Get notifications
-$notifications = [];
-try {
-    $query = "SELECT * FROM notifications WHERE admin_read = 0 ORDER BY created_at DESC LIMIT 3";
-    $result = $conn->query($query);
-    if ($result && $result->num_rows > 0) {
-        while ($row = $result->fetch_assoc()) {
-            $notifications[] = $row;
-        }
-    }
-} catch (Exception $e) {
-}
-$notification_count = count($notifications);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -198,9 +185,12 @@ $notification_count = count($notifications);
 
             <!-- Main Content -->
             <div class="tab-content">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h2><i class="fas fa-tachometer-alt me-2"></i>Dashboard</h2>
+                </div>
+
                 <!-- Dashboard Section -->
                 <div class="tab-pane fade show active" id="dashboard-section">
-                    <h2 class="mb-4">Dashboard</h2>
                     
                     <!-- Stats Cards -->
                     <div class="row">
@@ -213,7 +203,7 @@ $notification_count = count($notifications);
                                             <h3 class="mb-0"><?php echo number_format($total_bookings); ?></h3>
                                             <?php if($total_bookings > 0): ?>
                                             <p class="text-success mb-0"><i class="fas fa-arrow-up me-1"></i>
-                                                <span id="booking-trend">Getting data...</span>
+                                                <span id="booking-trend">Loading...</span>
                                             </p>
                                             <?php else: ?>
                                             <p class="text-muted mb-0">No data available</p>
@@ -236,7 +226,7 @@ $notification_count = count($notifications);
                                             <h3 class="mb-0">₱<?php echo number_format($today_revenue, 2); ?></h3>
                                             <?php if($today_revenue > 0): ?>
                                             <p class="text-success mb-0"><i class="fas fa-arrow-up me-1"></i>
-                                                <span id="revenue-trend">Getting data...</span>
+                                                <span id="revenue-trend">Loading...</span>
                                             </p>
                                             <?php else: ?>
                                             <p class="text-muted mb-0">No data available</p>
@@ -259,7 +249,7 @@ $notification_count = count($notifications);
                                             <h3 class="mb-0"><?php echo $active_buses; ?></h3>
                                             <?php if($active_buses > 0): ?>
                                             <p class="text-success mb-0">
-                                                <span id="buses-status">Getting data...</span>
+                                                <span id="buses-status">Loading...</span>
                                             </p>
                                             <?php else: ?>
                                             <p class="text-muted mb-0">No data available</p>
@@ -282,7 +272,7 @@ $notification_count = count($notifications);
                                             <h3 class="mb-0"><?php echo number_format($registered_users); ?></h3>
                                             <?php if($registered_users > 0): ?>
                                             <p class="text-success mb-0"><i class="fas fa-arrow-up me-1"></i>
-                                                <span id="users-trend">Getting data...</span>
+                                                <span id="users-trend">Loading...</span>
                                             </p>
                                             <?php else: ?>
                                             <p class="text-muted mb-0">No data available</p>
@@ -305,26 +295,19 @@ $notification_count = count($notifications);
                                     <h5 class="mb-0">Booking Statistics</h5>
                                     <div class="dropdown">
                                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="bookingStatsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                                            This Month
+                                            Last 7 Days
                                         </button>
                                         <ul class="dropdown-menu" aria-labelledby="bookingStatsDropdown">
-                                            <li><a class="dropdown-item" href="#">Today</a></li>
-                                            <li><a class="dropdown-item" href="#">This Week</a></li>
-                                            <li><a class="dropdown-item" href="#">This Month</a></li>
-                                            <li><a class="dropdown-item" href="#">Last 3 Months</a></li>
-                                            <li><a class="dropdown-item" href="#">This Year</a></li>
+                                            <li><a class="dropdown-item" href="#" onclick="changeBookingPeriod('7days')">Last 7 Days</a></li>
+                                            <li><a class="dropdown-item" href="#" onclick="changeBookingPeriod('30days')">Last 30 Days</a></li>
+                                            <li><a class="dropdown-item" href="#" onclick="changeBookingPeriod('90days')">Last 90 Days</a></li>
                                         </ul>
                                     </div>
                                 </div>
                                 <div class="card-body">
-                                    <div class="chart-container">
+                                    <div class="chart-container" style="height: 300px;">
                                         <canvas id="bookingStatsChart"></canvas>
                                     </div>
-                                    <?php if(count($recent_bookings) == 0): ?>
-                                    <div class="alert alert-info mt-3">
-                                        No booking data available yet. Statistics will appear here once bookings have been made.
-                                    </div>
-                                    <?php endif; ?>
                                 </div>
                             </div>
                         </div>
@@ -335,14 +318,9 @@ $notification_count = count($notifications);
                                     <h5 class="mb-0">Popular Routes</h5>
                                 </div>
                                 <div class="card-body">
-                                    <div class="chart-container">
+                                    <div class="chart-container" style="height: 300px;">
                                         <canvas id="routesChart"></canvas>
                                     </div>
-                                    <?php if(count($recent_bookings) == 0): ?>
-                                    <div class="alert alert-info mt-3">
-                                        No route data available yet. Statistics will appear here once routes have been used.
-                                    </div>
-                                    <?php endif; ?>
                                 </div>
                             </div>
                         </div>
@@ -354,7 +332,7 @@ $notification_count = count($notifications);
                             <div class="card mb-4">
                                 <div class="card-header d-flex justify-content-between align-items-center">
                                     <h5 class="mb-0">Recent Bookings</h5>
-                                    <a href="#bookings-section" class="btn btn-sm btn-primary" data-bs-toggle="tab">View All</a>
+                                    <a href="admin/tabs/bookings_admin.php" class="btn btn-sm btn-primary">View All</a>
                                 </div>
                                 <div class="card-body">
                                     <?php if(count($recent_bookings) > 0): ?>
@@ -374,31 +352,53 @@ $notification_count = count($notifications);
                                                 <?php foreach ($recent_bookings as $booking): ?>
                                                 <tr>
                                                     <td><?php echo $booking['id']; ?></td>
-                                                    <td><?php echo $booking['first_name'] . ' ' . $booking['last_name']; ?></td>
-                                                    <td><?php echo $booking['origin'] . ' to ' . $booking['destination']; ?></td>
+                                                    <td><?php echo htmlspecialchars($booking['first_name'] . ' ' . $booking['last_name']); ?></td>
+                                                    <td><?php echo htmlspecialchars($booking['origin'] . ' to ' . $booking['destination']); ?></td>
                                                     <td><?php echo date('M d, Y', strtotime($booking['travel_date'])); ?></td>
                                                     <td>
-                                                        <?php if ($booking['status'] == 'Confirmed'): ?>
-                                                            <span class="badge bg-success">Confirmed</span>
-                                                        <?php elseif ($booking['status'] == 'Pending'): ?>
-                                                            <span class="badge bg-warning text-dark">Pending</span>
-                                                        <?php elseif ($booking['status'] == 'Cancelled'): ?>
-                                                            <span class="badge bg-danger">Cancelled</span>
-                                                        <?php else: ?>
-                                                            <span class="badge bg-secondary"><?php echo $booking['status']; ?></span>
-                                                        <?php endif; ?>
+                                                        <?php 
+                                                        $status = $booking['status'];
+                                                        $badge_class = '';
+                                                        $display_text = '';
+                                                        
+                                                        switch($status) {
+                                                            case 'confirmed':
+                                                                $badge_class = 'bg-success';
+                                                                $display_text = 'Confirmed';
+                                                                break;
+                                                            case 'pending':
+                                                                $badge_class = 'bg-warning text-dark';
+                                                                $display_text = 'Pending';
+                                                                break;
+                                                            case 'cancelled':
+                                                                $badge_class = 'bg-danger';
+                                                                $display_text = 'Cancelled';
+                                                                break;
+                                                            default:
+                                                                $badge_class = 'bg-secondary';
+                                                                $display_text = ucfirst($status);
+                                                        }
+                                                        ?>
+                                                        <span class="badge <?php echo $badge_class; ?>"><?php echo $display_text; ?></span>
                                                     </td>
                                                     <td>
                                                         <div class="btn-group btn-group-sm">
-                                                            <button type="button" class="btn btn-outline-primary" data-bs-toggle="tooltip" title="View Details">
+                                                            <a href="admin/tabs/bookings_admin.php?action=view&id=<?php echo $booking['id']; ?>" 
+                                                               class="btn btn-outline-primary" data-bs-toggle="tooltip" title="View Details">
                                                                 <i class="fas fa-eye"></i>
-                                                            </button>
-                                                            <button type="button" class="btn btn-outline-success" data-bs-toggle="tooltip" title="Confirm">
+                                                            </a>
+                                                            <?php if($booking['status'] == 'pending'): ?>
+                                                            <button type="button" class="btn btn-outline-success" 
+                                                                    onclick="updateBookingStatus(<?php echo $booking['id']; ?>, 'confirmed')" 
+                                                                    data-bs-toggle="tooltip" title="Confirm">
                                                                 <i class="fas fa-check"></i>
                                                             </button>
-                                                            <button type="button" class="btn btn-outline-danger" data-bs-toggle="tooltip" title="Cancel">
+                                                            <button type="button" class="btn btn-outline-danger" 
+                                                                    onclick="updateBookingStatus(<?php echo $booking['id']; ?>, 'cancelled')" 
+                                                                    data-bs-toggle="tooltip" title="Cancel">
                                                                 <i class="fas fa-times"></i>
                                                             </button>
+                                                            <?php endif; ?>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -427,17 +427,22 @@ $notification_count = count($notifications);
                                         <li class="list-group-item">
                                             <div class="d-flex justify-content-between align-items-center">
                                                 <div>
-                                                    <strong><?php echo $schedule['origin']; ?> to <?php echo $schedule['destination']; ?></strong>
+                                                    <strong><?php echo htmlspecialchars($schedule['origin'] . ' to ' . $schedule['destination']); ?></strong>
                                                     <div class="text-muted small">
                                                         <i class="fas fa-clock me-1"></i> <?php echo date('h:i A', strtotime($schedule['departure_time'])); ?>
                                                     </div>
                                                     <div class="text-muted small">
-                                                        <i class="fas fa-bus me-1"></i> <?php echo $schedule['bus_name']; ?>
+                                                        <i class="fas fa-bus me-1"></i> <?php echo htmlspecialchars($schedule['bus_name']); ?>
+                                                        <?php if(isset($schedule['trip_number'])): ?>
+                                                            <span class="badge bg-info ms-1"><?php echo htmlspecialchars($schedule['trip_number']); ?></span>
+                                                        <?php endif; ?>
                                                     </div>
                                                 </div>
                                                 <div class="text-center">
-                                                    <div class="badge bg-primary mb-1"><?php echo date('M d', strtotime($schedule['departure_time'])); ?></div>
-                                                    <button class="btn btn-sm btn-outline-secondary d-block">Details</button>
+                                                    <button class="btn btn-sm btn-outline-secondary" 
+                                                            onclick="viewScheduleDetails(<?php echo $schedule['id']; ?>)">
+                                                        Details
+                                                    </button>
                                                 </div>
                                             </div>
                                         </li>
@@ -450,18 +455,16 @@ $notification_count = count($notifications);
                                     <?php endif; ?>
                                 </div>
                                 <div class="card-footer text-center">
-                                    <a href="#schedules-section" class="btn btn-sm btn-primary" data-bs-toggle="tab">Manage Schedules</a>
+                                    <a href="admin/tabs/schedules_admin.php" class="btn btn-sm btn-primary">Manage Schedules</a>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                
             </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // Toggle sidebar
@@ -474,47 +477,27 @@ $notification_count = count($notifications);
         var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
             return new bootstrap.Tooltip(tooltipTriggerEl)
         });
-        
-        // Function to get database stats
-        async function fetchDatabaseStats() {
-            try {
-                
-                
-                // Update stats trends
-                if (document.getElementById('booking-trend')) {
-                }
-                
-                if (document.getElementById('revenue-trend')) {
-                }
-                
-                if (document.getElementById('buses-status')) {
-                }
-                
-                if (document.getElementById('users-trend')) {
-                }
-            } catch (error) {
-                console.error("Error fetching stats:", error);
-            }
-        }
-        
-        // Initialize dynamic data
-        fetchDatabaseStats();
-        
-        // Booking Statistics Chart (only if there's data)
+
+        // Initialize Charts
+        let bookingStatsChart;
+        let routesChart;
+
+        // Booking Statistics Chart
         const bookingStatsCanvas = document.getElementById('bookingStatsChart');
         if (bookingStatsCanvas) {
             const bookingStatsCtx = bookingStatsCanvas.getContext('2d');
-            const bookingStatsChart = new Chart(bookingStatsCtx, {
+            bookingStatsChart = new Chart(bookingStatsCtx, {
                 type: 'line',
                 data: {
-                    labels: ['Apr 1', 'Apr 5', 'Apr 10', 'Apr 15', 'Apr 20', 'Apr 25', 'Apr 30'],
+                    labels: [],
                     datasets: [{
                         label: 'Bookings',
-                        data: [0, 0, 0, 0, 0, 0, 0], // Default to empty data
+                        data: [],
                         backgroundColor: 'rgba(54, 162, 235, 0.2)',
                         borderColor: 'rgba(54, 162, 235, 1)',
                         borderWidth: 2,
-                        tension: 0.3
+                        tension: 0.3,
+                        fill: true
                     }]
                 },
                 options: {
@@ -527,30 +510,40 @@ $notification_count = count($notifications);
                                 precision: 0
                             }
                         }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
                     }
                 }
             });
-            
-            // This would normally fetch data from the server
-            const hasData = <?php echo (count($recent_bookings) > 0) ? 'true' : 'false'; ?>;
-            if (hasData) {
-                bookingStatsChart.data.datasets[0].data = [5, 8, 12, 15, 20, 25, 30];
-                bookingStatsChart.update();
-            }
         }
-        
-        // Popular Routes Chart (only if there's data)
+
+        // Popular Routes Chart
         const routesCanvas = document.getElementById('routesChart');
         if (routesCanvas) {
             const routesCtx = routesCanvas.getContext('2d');
-            const routesChart = new Chart(routesCtx, {
+            routesChart = new Chart(routesCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: ['No Data'],
+                    labels: [],
                     datasets: [{
-                        data: [1],
-                        backgroundColor: ['rgba(200, 200, 200, 0.7)'],
-                        borderColor: ['rgba(200, 200, 200, 1)'],
+                        data: [],
+                        backgroundColor: [
+                            'rgba(255, 99, 132, 0.7)',
+                            'rgba(54, 162, 235, 0.7)',
+                            'rgba(255, 206, 86, 0.7)',
+                            'rgba(75, 192, 192, 0.7)',
+                            'rgba(153, 102, 255, 0.7)'
+                        ],
+                        borderColor: [
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(54, 162, 235, 1)',
+                            'rgba(255, 206, 86, 1)',
+                            'rgba(75, 192, 192, 1)',
+                            'rgba(153, 102, 255, 1)'
+                        ],
                         borderWidth: 1
                     }]
                 },
@@ -567,99 +560,152 @@ $notification_count = count($notifications);
                     }
                 }
             });
-            
-            // This would normally fetch data from the server
-            // For demo purposes, we'll simulate if there's data available
-            const hasData = <?php echo (count($recent_bookings) > 0) ? 'true' : 'false'; ?>;
-            if (hasData) {
-                routesChart.data.labels = ['Iloilo-Roxas', 'Iloilo-Kalibo', 'Bacolod-San Carlos', 'Iloilo-Caticlan', 'Iloilo-San Jose'];
-                routesChart.data.datasets[0].data = [35, 25, 15, 15, 10];
-                routesChart.data.datasets[0].backgroundColor = [
-                    'rgba(255, 99, 132, 0.7)',
-                    'rgba(54, 162, 235, 0.7)',
-                    'rgba(255, 206, 86, 0.7)',
-                    'rgba(75, 192, 192, 0.7)',
-                    'rgba(153, 102, 255, 0.7)'
-                ];
-                
-                routesChart.data.datasets[0].borderColor = [
-                   'rgba(255, 99, 132, 1)',
-                   'rgba(54, 162, 235, 1)',
-                   'rgba(255, 206, 86, 1)',
-                   'rgba(75, 192, 192, 1)',
-                   'rgba(153, 102, 255, 1)'
-               ];
-               routesChart.update();
-           }
-       }
-       
-       // Add tab state persistence
-       document.querySelectorAll('.nav-link[data-bs-toggle="tab"]').forEach(function(link) {
-           link.addEventListener('click', function(e) {
-               localStorage.setItem('activeAdminTab', e.target.getAttribute('href'));
-           });
-       });
-       
-       // Get active tab from localStorage and activate it
-       var activeTab = localStorage.getItem('activeAdminTab');
-       if (activeTab) {
-           var triggerEl = document.querySelector('.nav-link[href="' + activeTab + '"]');
-           if (triggerEl) {
-               var tab = new bootstrap.Tab(triggerEl);
-               tab.show();
-           }
-       }
-       
-       // Add confirmation for dangerous actions
-       document.querySelectorAll('.btn-outline-danger').forEach(function(button) {
-           button.addEventListener('click', function(e) {
-               if (!confirm('Are you sure you want to perform this action?')) {
-                   e.preventDefault();
-                   e.stopPropagation();
-               }
-           });
-       });
-       
-       // Reload dashboard data
-       function reloadDashboardData() {
-           fetchDatabaseStats();
-           
-           // Show loading state
-           document.querySelectorAll('.stats-card .card-body').forEach(card => {
-               card.classList.add('loading');
-           });
-           
-           // Simulate API fetch
-           setTimeout(() => {
-               // Remove loading state
-               document.querySelectorAll('.stats-card .card-body').forEach(card => {
-                   card.classList.remove('loading');
-               });
-               
-               // Update charts with new data
-               const hasData = <?php echo (count($recent_bookings) > 0) ? 'true' : 'false'; ?>;
-               
-               if (hasData && window.bookingStatsChart) {
-                   // Get random data for demonstration
-                   const newData = Array.from({length: 7}, () => Math.floor(Math.random() * 30) + 5);
-                   bookingStatsChart.data.datasets[0].data = newData;
-                   bookingStatsChart.update();
-               }
-               
-               if (hasData && window.routesChart) {
-                   // Get random data for demonstration
-                   const newData = Array.from({length: 5}, () => Math.floor(Math.random() * 30) + 5);
-                   routesChart.data.datasets[0].data = newData;
-                   routesChart.update();
-               }
-               
-               // Show success message if needed
-               console.log("Dashboard data refreshed successfully");
-           }, 1000);
-       }
+        }
 
-       
-   </script>
+        // Fetch Dashboard Data
+        async function fetchDashboardData(period = '7days') {
+            try {
+                const response = await fetch(`backend/connections/get_stats_trends.php?period=${period}`);
+                const data = await response.json();
+                
+                // Update booking stats chart
+                if (data.bookingStats && bookingStatsChart) {
+                    bookingStatsChart.data.labels = data.bookingStats.map(item => item.date);
+                    bookingStatsChart.data.datasets[0].data = data.bookingStats.map(item => item.count);
+                    bookingStatsChart.update();
+                }
+                
+                // Update popular routes chart
+                if (data.popularRoutes && routesChart) {
+                    routesChart.data.labels = data.popularRoutes.map(item => item.route);
+                    routesChart.data.datasets[0].data = data.popularRoutes.map(item => item.count);
+                    routesChart.update();
+                }
+                
+                // Update trends
+                if (data.trends) {
+                    if (document.getElementById('booking-trend')) {
+                        const bookingTrend = data.trends.bookingTrend;
+                        const bookingTrendElement = document.getElementById('booking-trend');
+                        bookingTrendElement.textContent = `${Math.abs(bookingTrend)}% from last month`;
+                        bookingTrendElement.parentElement.className = bookingTrend >= 0 ? 'text-success mb-0' : 'text-danger mb-0';
+                        bookingTrendElement.parentElement.innerHTML = `<i class="fas fa-arrow-${bookingTrend >= 0 ? 'up' : 'down'} me-1"></i>` + bookingTrendElement.outerHTML;
+                    }
+                    
+                    if (document.getElementById('revenue-trend')) {
+                        const revenueTrend = data.trends.revenueTrend;
+                        const revenueTrendElement = document.getElementById('revenue-trend');
+                        revenueTrendElement.textContent = `${Math.abs(revenueTrend)}% from yesterday`;
+                        revenueTrendElement.parentElement.className = revenueTrend >= 0 ? 'text-success mb-0' : 'text-danger mb-0';
+                        revenueTrendElement.parentElement.innerHTML = `<i class="fas fa-arrow-${revenueTrend >= 0 ? 'up' : 'down'} me-1"></i>` + revenueTrendElement.outerHTML;
+                    }
+                    
+                    if (document.getElementById('buses-status')) {
+                        document.getElementById('buses-status').textContent = `${data.trends.busesActive} buses operational`;
+                    }
+                    
+                    if (document.getElementById('users-trend')) {
+                        const usersTrend = data.trends.usersTrend;
+                        const usersTrendElement = document.getElementById('users-trend');
+                        usersTrendElement.textContent = `${Math.abs(usersTrend)}% this month`;
+                        usersTrendElement.parentElement.className = usersTrend >= 0 ? 'text-success mb-0' : 'text-danger mb-0';
+                        usersTrendElement.parentElement.innerHTML = `<i class="fas fa-arrow-${usersTrend >= 0 ? 'up' : 'down'} me-1"></i>` + usersTrendElement.outerHTML;
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching dashboard data:', error);
+            }
+        }
+
+        // Change booking period
+        function changeBookingPeriod(period) {
+            fetchDashboardData(period);
+            const dropdownButton = document.getElementById('bookingStatsDropdown');
+            switch(period) {
+                case '7days':
+                    dropdownButton.textContent = 'Last 7 Days';
+                    break;
+                case '30days':
+                    dropdownButton.textContent = 'Last 30 Days';
+                    break;
+                case '90days':
+                    dropdownButton.textContent = 'Last 90 Days';
+                    break;
+            }
+        }
+
+        // Update booking status
+        async function updateBookingStatus(bookingId, status) {
+            if (confirm(`Are you sure you want to ${status} this booking?`)) {
+                try {
+                    const response = await fetch('backend/connections/update_booking_status.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            booking_id: bookingId,
+                            status: status
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        // Reload the page to show updated data
+                        location.reload();
+                    } else {
+                        alert('Error updating booking status: ' + data.message);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Error updating booking status');
+                }
+            }
+        }
+
+        // View schedule details
+        function viewScheduleDetails(scheduleId) {
+            // Redirect to schedules page with specific schedule
+            window.location.href = `admin/tabs/schedules_admin.php?action=view&id=${scheduleId}`;
+        }
+
+        // Initialize dashboard data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchDashboardData('7days');
+            
+            // Refresh data every 5 minutes
+            setInterval(() => {
+                fetchDashboardData('7days');
+            }, 300000);
+        });
+
+        // Add auto-refresh for notifications
+        function refreshNotifications() {
+            fetch('admin/api/get_notifications.php')
+                .then(response => response.json())
+                .then(data => {
+                    const notificationDropdown = document.getElementById('notificationDropdown');
+                    const badge = notificationDropdown.querySelector('.badge');
+                    
+                    if (data.count > 0) {
+                        if (!badge) {
+                            const newBadge = document.createElement('span');
+                            newBadge.className = 'badge bg-danger';
+                            newBadge.textContent = data.count;
+                            notificationDropdown.appendChild(newBadge);
+                        } else {
+                            badge.textContent = data.count;
+                        }
+                    } else if (badge) {
+                        badge.remove();
+                    }
+                })
+                .catch(error => console.error('Error refreshing notifications:', error));
+        }
+
+        // Refresh notifications every minute
+        setInterval(refreshNotifications, 60000);
+    </script>
 </body>
 </html>
-                

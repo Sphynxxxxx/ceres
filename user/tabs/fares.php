@@ -226,6 +226,9 @@ try {
                         <a class="nav-link" href="booking.php">Book Ticket</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="locations.php">Locations</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link active" href="fares.php">Fares</a>
                     </li>
                 </ul>

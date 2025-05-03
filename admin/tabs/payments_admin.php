@@ -395,8 +395,10 @@ if ($result && $result->num_rows > 0) {
 
             <!-- Main Content -->
             <div class="container-fluid px-4">
-                <h2 class="mt-4 mb-4">Payment Management</h2>
-                
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h2><i class="fas fa-money-check-alt"></i> Payment Management</h2> 
+                </div>
+
                 <!-- Flash Messages -->
                 <?php if (isset($_SESSION['success_message'])): ?>
                     <div class="alert alert-success alert-dismissible fade show" role="alert">

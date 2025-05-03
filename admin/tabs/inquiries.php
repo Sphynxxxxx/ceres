@@ -227,19 +227,15 @@ $unread_stmt->close();
                     <button id="sidebarToggle" class="btn">
                         <i class="fas fa-bars"></i>
                     </button>
-                    <div class="ms-auto">
-                        <span class="me-3">Welcome, <?php echo htmlspecialchars($admin_name); ?></span>
-                        <a href="../../logout.php" class="btn btn-outline-danger btn-sm">
-                            <i class="fas fa-sign-out-alt"></i> Logout
-                        </a>
-                    </div>
                 </div>
             </nav>
 
             <!-- Main Content -->
             <div class="container-fluid">
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h2>Customer Inquiries</h2>
+                    <h2><i class="fas fa-envelope"></i> Customer Inquiries</h2> 
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-4">
                     <div class="d-flex align-items-center">
                         <form class="search-bar me-3" method="GET" action="">
                             <div class="input-group">
