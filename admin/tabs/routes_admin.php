@@ -111,11 +111,31 @@ if ($action === 'edit' && isset($_GET['id'])) {
 // Fetch all routes for display
 $routes = [];
 try {
-    $query = "SELECT r.*, 
-              (SELECT COUNT(*) FROM buses b WHERE LOWER(b.route_name) = CONCAT(LOWER(r.origin), ' → ', LOWER(r.destination))) as bus_count 
-              FROM routes r 
-              ORDER BY r.origin, r.destination";
-    $result = $conn->query($query);
+    // Check if search term is present
+    $searchTerm = isset($_GET['search']) ? $_GET['search'] : '';
+    
+    if (!empty($searchTerm)) {
+        // Query with search filter
+        $query = "SELECT r.*, 
+                  (SELECT COUNT(*) FROM buses b WHERE LOWER(b.route_name) = CONCAT(LOWER(r.origin), ' → ', LOWER(r.destination))) as bus_count 
+                  FROM routes r 
+                  WHERE r.origin LIKE ? OR r.destination LIKE ? OR CONCAT(r.origin, ' → ', r.destination) LIKE ?
+                  ORDER BY r.origin, r.destination";
+        
+        $stmt = $conn->prepare($query);
+        $searchParam = "%" . $searchTerm . "%";
+        $stmt->bind_param("sss", $searchParam, $searchParam, $searchParam);
+        $stmt->execute();
+        $result = $stmt->get_result();
+    } else {
+        // Original query without search filter
+        $query = "SELECT r.*, 
+                  (SELECT COUNT(*) FROM buses b WHERE LOWER(b.route_name) = CONCAT(LOWER(r.origin), ' → ', LOWER(r.destination))) as bus_count 
+                  FROM routes r 
+                  ORDER BY r.origin, r.destination";
+        $result = $conn->query($query);
+    }
+    
     if ($result) {
         while ($row = $result->fetch_assoc()) {
             // Calculate fare based on distance
@@ -261,6 +281,12 @@ $notifications = [
                         <span>Payments</span>
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="inquiries.php">
+                        <i class="fas fa-envelope"></i>
+                        <span>Inquiries</span>
+                    </a>
+                </li>
             </ul>
         </nav>
 
@@ -273,9 +299,9 @@ $notifications = [
                         <i class="fas fa-bars"></i>
                     </button>
                     <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                        <form class="d-flex ms-auto">
+                        <form class="d-flex ms-auto" action="routes_admin.php" method="get">
                             <div class="input-group">
-                                <input class="form-control" type="search" placeholder="Search routes" aria-label="Search">
+                                <input class="form-control" type="search" name="search" placeholder="Search routes" aria-label="Search" value="<?php echo isset($_GET['search']) ? htmlspecialchars($_GET['search']) : ''; ?>">
                                 <button class="btn btn-outline-primary" type="submit">
                                     <i class="fas fa-search"></i>
                                 </button>
@@ -289,15 +315,22 @@ $notifications = [
             <div class="container-fluid">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h2><i class="fas fa-route me-2"></i>Route Management</h2>
-                    <?php if ($action === 'view'): ?>
-                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addRouteModal">
-                        <i class="fas fa-plus me-2"></i>Add New Route
-                    </button>
-                    <?php else: ?>
-                    <a href="routes_admin.php" class="btn btn-outline-secondary">
-                        <i class="fas fa-arrow-left me-2"></i>Back to Routes
-                    </a>
-                    <?php endif; ?>
+                    <div>
+                        <?php if (isset($_GET['search']) && !empty($_GET['search'])): ?>
+                            <a href="routes_admin.php" class="btn btn-outline-secondary me-2">
+                                <i class="fas fa-times me-1"></i> Clear Search
+                            </a>
+                        <?php endif; ?>
+                        <?php if ($action === 'view'): ?>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addRouteModal">
+                            <i class="fas fa-plus me-2"></i>Add New Route
+                        </button>
+                        <?php else: ?>
+                        <a href="routes_admin.php" class="btn btn-outline-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Routes
+                        </a>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <!-- Success/Error Messages -->

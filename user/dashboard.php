@@ -105,7 +105,7 @@ try {
                             <a href="dashboard.php" class="list-group-item list-group-item-action active">
                                 <i class="fas fa-tachometer-alt me-2"></i>Dashboard
                             </a>
-                            <a href="profile.php" class="list-group-item list-group-item-action">
+                            <a href="tabs/profile.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-user me-2"></i>My Profile
                             </a>
                             <a href="tabs/mybookings.php" class="list-group-item list-group-item-action">
@@ -252,7 +252,7 @@ try {
                                         </div>
                                         <h5>Need Help?</h5>
                                         <p>Reach out to our support team for assistance with your booking.</p>
-                                        <a href="contact.php" class="btn btn-outline-warning w-100">Contact Us</a>
+                                        <a href="tabs/contact.php" class="btn btn-outline-warning w-100">Contact Us</a>
                                     </div>
                                 </div>
                             </div>
@@ -306,7 +306,7 @@ try {
                         <li><a href="tabs/routes.php" class="text-white"><i class="fas fa-route me-2"></i>Routes</a></li>
                         <li><a href="tabs/schedule.php" class="text-white"><i class="fas fa-calendar-alt me-2"></i>Schedule</a></li>
                         <li><a href="tabs/booking.php" class="text-white"><i class="fas fa-ticket-alt me-2"></i>Book Ticket</a></li>
-                        <li><a href="contact.php" class="text-white"><i class="fas fa-envelope me-2"></i>Contact Us</a></li>
+                        <li><a href="tabs/contact.php" class="text-white"><i class="fas fa-envelope me-2"></i>Contact Us</a></li>
                     </ul>
                 </div>
                 <div class="col-lg-4 mb-4">

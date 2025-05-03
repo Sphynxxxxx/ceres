@@ -176,6 +176,12 @@ $notification_count = count($notifications);
                         <span>Payments</span>
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="admin/tabs/inquiries.php">
+                        <i class="fas fa-envelope"></i>
+                        <span>Inquiries</span>
+                    </a>
+                </li>
             </ul>
         </nav>
 

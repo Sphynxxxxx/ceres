@@ -104,8 +104,6 @@ try {
             margin-bottom: 20px;
         }
 
-
-
         .table-responsive {
             overflow-x: auto;
         }
@@ -124,6 +122,18 @@ try {
             border-radius: 0.5rem;
             padding: 1rem;
             margin-bottom: 1rem;
+        }
+        
+        #userBookingHistory .table {
+            font-size: 0.9rem;
+        }
+        
+        #userBookingHistory .badge {
+            font-size: 0.75rem;
+        }
+        
+        .modal-xl {
+            max-width: 1200px;
         }
     </style>
 </head>
@@ -176,6 +186,12 @@ try {
                     <a class="nav-link" href="payments_admin.php">
                         <i class="fas fa-money-check-alt"></i>
                         <span>Payments</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="inquiries.php">
+                        <i class="fas fa-envelope"></i>
+                        <span>Inquiries</span>
                     </a>
                 </li>
             </ul>
@@ -412,7 +428,7 @@ try {
 
     <!-- View User Modal -->
     <div class="modal fade" id="viewUserModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="fas fa-user me-2"></i>User Details</h5>
@@ -426,7 +442,7 @@ try {
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="card mb-3">
                                 <div class="card-header">
                                     <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>Personal Information</h6>
@@ -436,12 +452,12 @@ try {
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-8">
                             <div class="card mb-3">
                                 <div class="card-header">
                                     <h6 class="mb-0"><i class="fas fa-ticket-alt me-2"></i>Booking History</h6>
                                 </div>
-                                <div class="card-body" id="userBookingHistory">
+                                <div class="card-body" id="userBookingHistory" style="max-height: 500px; overflow-y: auto;">
                                     <!-- Booking history will be loaded here -->
                                 </div>
                             </div>
@@ -507,50 +523,147 @@ try {
                         <span class="visually-hidden">Loading...</span>
                     </div>
                 `;
-                
-                // Simulate loading data
-                setTimeout(function() {
-                    // This would normally be populated with data from the server
-                    document.getElementById('userProfileSection').innerHTML = `
-                        <div class="d-flex justify-content-center mb-3">
-                            <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2rem;">
-                                ${userId[0]}
-                            </div>
+                document.getElementById('userPersonalInfo').innerHTML = `
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
                         </div>
-                        <h4>User #${userId}</h4>
-                        <p class="text-muted">Account details for user ID: ${userId}</p>
-                    `;
-                    
-                    document.getElementById('userPersonalInfo').innerHTML = `
-                        <dl class="row mb-0">
-                            <dt class="col-sm-4">Full Name:</dt>
-                            <dd class="col-sm-8">User ${userId}</dd>
+                    </div>
+                `;
+                document.getElementById('userBookingHistory').innerHTML = `
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                `;
+                
+                // Fetch user details via AJAX
+                fetch(`../../backend/connections/get_user_details.php?user_id=${userId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        // Populate user profile section
+                        if (data.success) {
+                            const user = data.user;
+                            const initials = (user.first_name.charAt(0) + user.last_name.charAt(0)).toUpperCase();
                             
-                            <dt class="col-sm-4">Email:</dt>
-                            <dd class="col-sm-8">user${userId}@example.com</dd>
+                            document.getElementById('userProfileSection').innerHTML = `
+                                <div class="d-flex justify-content-center mb-3">
+                                    <div class="user-avatar" style="width: 80px; height: 80px; font-size: 2rem;">
+                                        ${initials}
+                                    </div>
+                                </div>
+                                <h4>${user.first_name} ${user.last_name}</h4>
+                                <p class="text-muted">User ID: #${user.id}</p>
+                            `;
                             
-                            <dt class="col-sm-4">Phone:</dt>
-                            <dd class="col-sm-8">+63 9123456789</dd>
+                            document.getElementById('userPersonalInfo').innerHTML = `
+                                <dl class="row mb-0">
+                                    <dt class="col-sm-5">Full Name:</dt>
+                                    <dd class="col-sm-7">${user.first_name} ${user.last_name}</dd>
+                                    
+                                    <dt class="col-sm-5">Email:</dt>
+                                    <dd class="col-sm-7">${user.email}</dd>
+                                    
+                                    <dt class="col-sm-5">Phone:</dt>
+                                    <dd class="col-sm-7">${user.contact_number}</dd>
+                                    
+                                    <dt class="col-sm-5">Gender:</dt>
+                                    <dd class="col-sm-7">${user.gender.charAt(0).toUpperCase() + user.gender.slice(1)}</dd>
+                                    
+                                    <dt class="col-sm-5">Birthdate:</dt>
+                                    <dd class="col-sm-7">${new Date(user.birthdate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</dd>
+                                    
+                                    <dt class="col-sm-5">Joined:</dt>
+                                    <dd class="col-sm-7">${new Date(user.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</dd>
+                                </dl>
+                            `;
                             
-                            <dt class="col-sm-4">Gender:</dt>
-                            <dd class="col-sm-8">Not specified</dd>
+                            // Populate booking history
+                            if (data.bookings && data.bookings.length > 0) {
+                                let bookingHistoryHTML = `
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-hover">
+                                            <thead>
+                                                <tr>
+                                                    <th>Ref #</th>
+                                                    <th>Date</th>
+                                                    <th>Route</th>
+                                                    <th>Status</th>
+                                                    <th>Payment</th>
+                                                    <th>Amount</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                `;
+                                
+                                data.bookings.forEach(booking => {
+                                    let statusBadge = '';
+                                    switch(booking.booking_status) {
+                                        case 'confirmed':
+                                            statusBadge = '<span class="badge bg-success">Confirmed</span>';
+                                            break;
+                                        case 'pending':
+                                            statusBadge = '<span class="badge bg-warning">Pending</span>';
+                                            break;
+                                        case 'cancelled':
+                                            statusBadge = '<span class="badge bg-danger">Cancelled</span>';
+                                            break;
+                                        default:
+                                            statusBadge = `<span class="badge bg-secondary">${booking.booking_status}</span>`;
+                                    }
+                                    
+                                    let paymentBadge = '';
+                                    switch(booking.payment_status) {
+                                        case 'verified':
+                                            paymentBadge = '<span class="badge bg-success">Verified</span>';
+                                            break;
+                                        case 'pending':
+                                            paymentBadge = '<span class="badge bg-warning">Pending</span>';
+                                            break;
+                                        case 'rejected':
+                                            paymentBadge = '<span class="badge bg-danger">Rejected</span>';
+                                            break;
+                                        default:
+                                            paymentBadge = `<span class="badge bg-secondary">${booking.payment_status}</span>`;
+                                    }
+                                    
+                                    bookingHistoryHTML += `
+                                        <tr>
+                                            <td>${booking.booking_reference}</td>
+                                            <td>${new Date(booking.booking_date).toLocaleDateString()}</td>
+                                            <td>${booking.origin} → ${booking.destination}</td>
+                                            <td>${statusBadge}</td>
+                                            <td>${paymentBadge}</td>
+                                            <td>₱${parseFloat(booking.fare_amount).toFixed(2)}</td>
+                                        </tr>
+                                    `;
+                                });
+                                
+                                bookingHistoryHTML += `
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                `;
+                                
+                                document.getElementById('userBookingHistory').innerHTML = bookingHistoryHTML;
+                            } else {
+                                document.getElementById('userBookingHistory').innerHTML = `
+                                    <p class="text-center text-muted">No booking history available.</p>
+                                `;
+                            }
                             
-                            <dt class="col-sm-4">Birthdate:</dt>
-                            <dd class="col-sm-8">January 1, 1990</dd>
-                            
-                            <dt class="col-sm-4">Joined:</dt>
-                            <dd class="col-sm-8">April 20, 2025</dd>
-                        </dl>
-                    `;
-                    
-                    document.getElementById('userBookingHistory').innerHTML = `
-                        <p class="text-center text-muted">No booking history available.</p>
-                    `;
-                    
-                    // Show the modal using Bootstrap's modal method
-                    var viewUserModal = new bootstrap.Modal(document.getElementById('viewUserModal'));
-                    viewUserModal.show();
-                }, 500);
+                            // Show the modal
+                            var viewUserModal = new bootstrap.Modal(document.getElementById('viewUserModal'));
+                            viewUserModal.show();
+                        } else {
+                            alert('Failed to load user details: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Failed to load user details.');
+                    });
             });
         });
     </script>

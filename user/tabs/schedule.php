@@ -885,11 +885,9 @@ function calculateArrivalTime($departureTime, $duration) {
                                                 </div>
                                                 
                                                 <!-- Book Button -->
-                                                <div class="mt-3">
-                                                    <a href="booking.php?bus_id=<?php echo $bus_id; ?>&date=<?php echo $selected_date; ?>&time=<?php echo urlencode($schedule['formatted_departure']); ?>&trip=<?php echo urlencode($trip_number); ?>&schedule_id=<?php echo $schedule['schedule_id']; ?>" class="btn booking-cta">
-                                                        <i class="fas fa-ticket-alt me-2"></i>Book This Bus
-                                                    </a>
-                                                </div>
+                                                <a href="booking.php?origin=<?php echo urlencode($bus['origin']); ?>&destination=<?php echo urlencode($bus['destination']); ?>&date=<?php echo $selected_date; ?>&bus_id=<?php echo $bus_id; ?>&trip=<?php echo urlencode($schedule['trip_number']); ?>&schedule_id=<?php echo $schedule['schedule_id']; ?>" class="btn booking-cta">
+                                                    <i class="fas fa-ticket-alt me-2"></i>Book This Bus
+                                                </a>
                                             </div>
                                         </div>
                                     </div>

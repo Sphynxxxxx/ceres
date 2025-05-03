@@ -19,7 +19,7 @@ $user_email = $_SESSION['user_email'];
 $debug_messages = [];
 
 // Database connection
-require_once "../../../backend/connections/config.php"; 
+require_once "../../../backend/connections/config.php";
 require_once "../../../vendor/autoload.php";
 
 // Check if connection exists and is valid
@@ -31,15 +31,6 @@ if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
 
-// Ensure booking_reference column exists
-try {
-    $alter_query = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS booking_reference VARCHAR(20) DEFAULT NULL";
-    $conn->query($alter_query);
-} catch (Exception $e) {
-    error_log("Error checking/adding booking_reference column: " . $e->getMessage());
-    // Continue anyway
-}
-
 // Check if booking ID is provided
 if (!isset($_GET['booking_id']) || empty($_GET['booking_id'])) {
     header("Location: booking.php");
@@ -49,17 +40,19 @@ if (!isset($_GET['booking_id']) || empty($_GET['booking_id'])) {
 $booking_id = intval($_GET['booking_id']);
 $booking_data = null;
 $bus_data = null;
-$route_data = null;
+$schedule_data = null;
 
-// Fetch booking details
+// Fetch booking details with proper joins
 try {
     $debug_messages[] = "Starting fetch of booking ID: " . $booking_id;
     
-    // Adapt query to match your database structure - handle missing full_name column
+    // Fetch booking with user details
     $booking_query = "SELECT b.*, 
                      u.email as passenger_email,
                      u.contact_number as passenger_phone,
-                     CONCAT(u.first_name, ' ', u.last_name) as passenger_name
+                     u.full_name as passenger_name,
+                     u.first_name,
+                     u.last_name
                      FROM bookings b
                      LEFT JOIN users u ON b.user_id = u.id
                      WHERE b.id = ? AND b.user_id = ?";
@@ -87,10 +80,10 @@ try {
             }
         }
         
-        // Fetch bus details
-        $bus_query = "SELECT b.*, s.departure_time, s.arrival_time, s.trip_number
+        // Fetch bus details with route information
+        $bus_query = "SELECT b.*, r.origin, r.destination, r.fare as route_fare 
                     FROM buses b
-                    LEFT JOIN schedules s ON b.id = s.bus_id
+                    LEFT JOIN routes r ON b.route_id = r.id
                     WHERE b.id = ?";
                      
         $bus_stmt = $conn->prepare($bus_query);
@@ -102,42 +95,51 @@ try {
             $bus_data = $bus_result->fetch_assoc();
             $debug_messages[] = "Bus data fetched successfully";
             
-            // Try to extract origin and destination - handle different database structures
-            if (isset($bus_data['route_name']) && strpos($bus_data['route_name'], '→') !== false) {
-                // Extract from route_name field
-                $route_parts = explode(' → ', $bus_data['route_name']);
-                $origin = $route_parts[0] ?? '';
-                $destination = $route_parts[1] ?? '';
-            } else {
-                // Check if origin/destination are directly in bus table
-                $origin = $bus_data['origin'] ?? '';
-                $destination = $bus_data['destination'] ?? '';
-            }
+            // Fetch schedule details based on bus_id and trip_number
+            $schedule_query = "SELECT * FROM schedules 
+                             WHERE bus_id = ? AND trip_number = ?";
+            $schedule_stmt = $conn->prepare($schedule_query);
             
-            // Fetch fare from routes table
-            $route_query = "SELECT * FROM routes WHERE origin = ? AND destination = ?";
-            $route_stmt = $conn->prepare($route_query);
-            $route_stmt->bind_param("ss", $origin, $destination);
-            $route_stmt->execute();
-            $route_result = $route_stmt->get_result();
+            // Debug: Log the query parameters
+            $debug_messages[] = "Looking for schedule with bus_id: " . $booking_data['bus_id'] . " and trip_number: '" . $booking_data['trip_number'] . "'";
             
-            if ($route_result && $route_result->num_rows > 0) {
-                $route_data = $route_result->fetch_assoc();
-                $debug_messages[] = "Route data fetched successfully";
+            $schedule_stmt->bind_param("is", $booking_data['bus_id'], $booking_data['trip_number']);
+            $schedule_stmt->execute();
+            $schedule_result = $schedule_stmt->get_result();
+            
+            if ($schedule_result && $schedule_result->num_rows > 0) {
+                $schedule_data = $schedule_result->fetch_assoc();
+                $debug_messages[] = "Schedule data fetched successfully for trip: " . $booking_data['trip_number'];
+                $debug_messages[] = "Schedule ID: " . $schedule_data['id'];
+                $debug_messages[] = "Departure: " . $schedule_data['departure_time'] . ", Arrival: " . $schedule_data['arrival_time'];
             } else {
-                $debug_messages[] = "Route data not found. Checking schedules for fare info.";
+                // Try to find any matching schedule for this bus
+                $debug_messages[] = "No exact trip match found. Searching for ANY schedule for bus_id: " . $booking_data['bus_id'];
                 
-                // Try to get fare from schedules if route fails
-                $schedule_query = "SELECT fare_amount FROM schedules WHERE bus_id = ? LIMIT 1";
-                $schedule_stmt = $conn->prepare($schedule_query);
-                $schedule_stmt->bind_param("i", $booking_data['bus_id']);
-                $schedule_stmt->execute();
-                $schedule_result = $schedule_stmt->get_result();
+                // Let's check what schedules exist for this bus
+                $check_query = "SELECT id, bus_id, trip_number, departure_time, arrival_time FROM schedules WHERE bus_id = ?";
+                $check_stmt = $conn->prepare($check_query);
+                $check_stmt->bind_param("i", $booking_data['bus_id']);
+                $check_stmt->execute();
+                $check_result = $check_stmt->get_result();
                 
-                if ($schedule_result && $schedule_result->num_rows > 0) {
-                    $schedule_data = $schedule_result->fetch_assoc();
-                    $route_data = ['fare' => $schedule_data['fare_amount']];
-                    $debug_messages[] = "Got fare from schedules instead: " . $schedule_data['fare_amount'];
+                $debug_messages[] = "Available schedules for this bus:";
+                while ($row = $check_result->fetch_assoc()) {
+                    $debug_messages[] = "- Schedule ID: " . $row['id'] . ", Trip: '" . $row['trip_number'] . "', Departure: " . $row['departure_time'];
+                }
+                
+                // Now try to get the first available schedule as fallback
+                $fallback_query = "SELECT * FROM schedules WHERE bus_id = ? ORDER BY id LIMIT 1";
+                $fallback_stmt = $conn->prepare($fallback_query);
+                $fallback_stmt->bind_param("i", $booking_data['bus_id']);
+                $fallback_stmt->execute();
+                $fallback_result = $fallback_stmt->get_result();
+                
+                if ($fallback_result && $fallback_result->num_rows > 0) {
+                    $schedule_data = $fallback_result->fetch_assoc();
+                    $debug_messages[] = "Using fallback schedule data - Schedule ID: " . $schedule_data['id'];
+                } else {
+                    $debug_messages[] = "No schedule data found for bus ID: " . $booking_data['bus_id'];
                 }
             }
         } else {
@@ -157,35 +159,50 @@ try {
 }
 
 // If booking data is not retrieved, redirect
-if (!$booking_data) {
+if (!$booking_data || !$bus_data) {
     $debug_messages[] = "Essential data missing, redirecting";
     header("Location: ../mybookings.php");
     exit;
 }
 
 // Format date and time
-// Handle date format conversion if needed
-if (isset($booking_data['booking_date'])) {
-    $booking_date = strtotime($booking_data['booking_date']);
-    $booking_date_formatted = date('F d, Y', $booking_date);
-} else {
-    $booking_date_formatted = 'N/A';
-}
-
-if (isset($booking_data['created_at'])) {
-    $created_at_formatted = date('F d, Y h:i A', strtotime($booking_data['created_at']));
-} else {
-    $created_at_formatted = date('F d, Y h:i A');
-}
+$booking_date = strtotime($booking_data['booking_date']);
+$booking_date_formatted = date('F d, Y', $booking_date);
+$created_at_formatted = date('F d, Y h:i A', strtotime($booking_data['created_at']));
 
 // Handle potentially missing schedule data
-$departure_time = isset($bus_data['departure_time']) ? date('h:i A', strtotime($bus_data['departure_time'])) : 'N/A';
-$arrival_time = isset($bus_data['arrival_time']) ? date('h:i A', strtotime($bus_data['arrival_time'])) : 'N/A';
+$departure_time = 'N/A';
+$arrival_time = 'N/A';
+
+if (isset($schedule_data['departure_time']) && !empty($schedule_data['departure_time'])) {
+    $departure_time = date('h:i A', strtotime($schedule_data['departure_time']));
+    $debug_messages[] = "Formatted departure time: " . $departure_time;
+}
+
+if (isset($schedule_data['arrival_time']) && !empty($schedule_data['arrival_time'])) {
+    $arrival_time = date('h:i A', strtotime($schedule_data['arrival_time']));
+    $debug_messages[] = "Formatted arrival time: " . $arrival_time;
+}
 
 // Set default values if data is missing
-$origin = $origin ?? 'N/A';
-$destination = $destination ?? 'N/A';
-$fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
+$origin = $bus_data['origin'] ?? 'N/A';
+$destination = $bus_data['destination'] ?? 'N/A';
+$fare_amount = $schedule_data['fare_amount'] ?? $bus_data['route_fare'] ?? 0.00;
+
+// Debug trip information
+$debug_messages[] = "Trip Number from booking: " . ($booking_data['trip_number'] ?? 'Not set');
+$debug_messages[] = "Origin: " . $origin . ", Destination: " . $destination;
+
+// Apply discount if applicable
+if ($booking_data['discount_type'] === 'student' && $booking_data['discount_verified'] == 1) {
+    $fare_amount = $fare_amount * 0.8; // 20% student discount
+}
+
+// Handle payment status
+$payment_status = $booking_data['payment_status'];
+if ($payment_status === 'awaiting_verificatio') {
+    $payment_status = 'awaiting_verification';
+}
 ?>
 
 <!DOCTYPE html>
@@ -299,12 +316,6 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
             margin: 15px 0;
         }
         
-        .debug-info {
-            font-size: 0.8rem;
-            border-left: 5px solid #17a2b8;
-            margin-bottom: 20px;
-        }
-        
         /* Print-specific styles */
         @media print {
             body {
@@ -349,7 +360,6 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                 float: left;
             }
             
-            /* Improve printing of QR and barcode images */
             .barcode, .qr-code {
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
@@ -397,28 +407,15 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                 <div class="receipt-container">
                     <!-- Receipt Header -->
                     <div class="receipt-header text-center">
-                        <div class="row align-items-center">
-                            <!--<div class="col-md-4">
-                                <img src="../img/ceres-logo.png" alt="Ceres Bus Logo" class="company-logo">
-                            </div>-->
-                            <div class="col-md-8 text-md-start text-center">
-                                <h3 class="receipt-title">Ceres Bus Ticket System</h3>
-                                <p class="mb-0">ISAT-U Commuters Special Service</p>
-                                <p class="mb-0">Ceres Bus Terminal, Iloilo City</p>
-                            </div>
-                        </div>
+                        <h3 class="receipt-title">Ceres Bus Ticket System</h3>
+                        <p class="mb-0">ISAT-U Commuters Special Service</p>
+                        <p class="mb-0">Ceres Bus Terminal, Iloilo City</p>
                     </div>
                     
                     <!-- Booking Reference -->
                     <div class="booking-ref text-center">
-                        <div class="row">
-                            <div class="col-md-6 text-md-end">
-                                <strong>Booking Reference:</strong>
-                            </div>
-                            <div class="col-md-6 text-md-start">
-                                <?php echo htmlspecialchars($booking_data['booking_reference'] ?? 'N/A'); ?>
-                            </div>
-                        </div>
+                        <strong>Booking Reference: </strong>
+                        <?php echo htmlspecialchars($booking_data['booking_reference'] ?? 'N/A'); ?>
                     </div>
                     
                     <!-- Ticket Info -->
@@ -429,11 +426,11 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                                 <div class="divider"></div>
                                 <p>
                                     <span class="icon"><i class="fas fa-route"></i></span>
-                                    <strong>Route:</strong> <?php echo htmlspecialchars($origin); ?> to <?php echo htmlspecialchars($destination); ?>
+                                    <strong>Route:</strong> <?php echo htmlspecialchars(ucfirst($origin)); ?> to <?php echo htmlspecialchars(ucfirst($destination)); ?>
                                 </p>
                                 <p>
                                     <span class="icon"><i class="fas fa-tag"></i></span>
-                                    <strong>Trip Number:</strong> <?php echo htmlspecialchars($bus_data['trip_number']); ?>
+                                    <strong>Trip Number:</strong> <?php echo htmlspecialchars($booking_data['trip_number']); ?>
                                 </p>
                                 <p>
                                     <span class="icon"><i class="fas fa-calendar-alt"></i></span>
@@ -455,7 +452,7 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                                     <span class="icon"><i class="fas fa-money-bill-wave"></i></span>
                                     <strong>Payment Method:</strong> 
                                     <?php
-                                        $payment_method = isset($booking_data['payment_method']) ? $booking_data['payment_method'] : 'Not specified';
+                                        $payment_method = $booking_data['payment_method'] ?? 'Not specified';
                                         
                                         if ($payment_method == 'counter') {
                                             echo '<span class="badge bg-secondary">Pay at Counter</span>';
@@ -468,27 +465,17 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                                         }
                                     ?>
                                 </p>
-                                <!--<p>
-                                    <span class="icon"><i class="fas fa-check-circle"></i></span>
-                                    <strong>Payment Status:</strong>
-                                    <?php
-                                        $payment_status = isset($booking_data['payment_status']) ? $booking_data['payment_status'] : 'pending';
-                                        
-                                        if ($payment_status == 'awaiting_verificatio') {
-                                            $payment_status = 'awaiting_verification';
-                                        }
-                                        
-                                        if ($payment_status == 'pending') {
-                                            echo '<span class="badge bg-warning text-dark">Payment Pending</span>';
-                                        } elseif ($payment_status == 'awaiting_verification') {
-                                            echo '<span class="badge bg-info">Awaiting Verification</span>';
-                                        } elseif ($payment_status == 'paid' || $payment_status == 'completed') {
-                                            echo '<span class="badge bg-success">Paid</span>';
+                                <p>
+                                    <span class="icon"><i class="fas fa-percentage"></i></span>
+                                    <strong>Discount Type:</strong> 
+                                    <?php 
+                                        if ($booking_data['discount_type'] === 'student') {
+                                            echo '<span class="badge bg-info">Student</span>';
                                         } else {
-                                            echo '<span class="badge bg-secondary">' . htmlspecialchars(ucfirst(str_replace('_', ' ', $payment_status))) . '</span>';
+                                            echo '<span class="badge bg-secondary">Regular</span>';
                                         }
                                     ?>
-                                </p>-->
+                                </p>
                             </div>
                         </div>
                         
@@ -498,15 +485,15 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                                 <div class="divider"></div>
                                 <p>
                                     <span class="icon"><i class="fas fa-user"></i></span>
-                                    <strong>Name:</strong> <?php echo htmlspecialchars($booking_data['passenger_name'] ?? $user_name); ?>
+                                    <strong>Name:</strong> <?php echo htmlspecialchars($booking_data['passenger_name'] ?? $booking_data['first_name'] . ' ' . $booking_data['last_name']); ?>
                                 </p>
                                 <p>
                                     <span class="icon"><i class="fas fa-envelope"></i></span>
-                                    <strong>Email:</strong> <?php echo htmlspecialchars($booking_data['passenger_email'] ?? $user_email); ?>
+                                    <strong>Email:</strong> <?php echo htmlspecialchars($booking_data['passenger_email']); ?>
                                 </p>
                                 <p>
                                     <span class="icon"><i class="fas fa-phone"></i></span>
-                                    <strong>Phone:</strong> <?php echo isset($booking_data['passenger_phone']) ? htmlspecialchars($booking_data['passenger_phone']) : 'N/A'; ?>
+                                    <strong>Phone:</strong> <?php echo htmlspecialchars($booking_data['passenger_phone'] ?? 'N/A'); ?>
                                 </p>
                                 <p>
                                     <span class="icon"><i class="fas fa-calendar-check"></i></span>
@@ -526,7 +513,7 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                                     <strong>Bus ID:</strong> #<?php echo $bus_data['id'] ?? 'N/A'; ?>
                                 </p>
                                 <p>
-                                    <strong>Bus Type:</strong> <?php echo $bus_data['bus_type'] ?? 'N/A'; ?>
+                                    <strong>Bus Type:</strong> <?php echo htmlspecialchars($bus_data['bus_type'] ?? 'N/A'); ?>
                                 </p>
                                 <p>
                                     <strong>Plate Number:</strong> <?php echo htmlspecialchars($bus_data['plate_number'] ?? 'N/A'); ?>
@@ -541,7 +528,7 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                                 </p>
                                 <p>
                                     <strong>Status:</strong> 
-                                    <span class="badge bg-success">Confirmed</span>
+                                    <span class="badge bg-success"><?php echo ucfirst($booking_data['booking_status']); ?></span>
                                 </p>
                             </div>
                         </div>
@@ -556,9 +543,17 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                                 <p>
                                     <strong>Base Fare:</strong>
                                 </p>
+                                <?php if ($booking_data['discount_type'] === 'student' && $booking_data['discount_verified'] == 1): ?>
+                                <p>
+                                    <strong>Student Discount (20%):</strong>
+                                </p>
+                                <?php endif; ?>
                             </div>
                             <div class="col-md-4 text-end">
-                                <p>₱<?php echo number_format($fare_amount, 2); ?></p>
+                                <p>₱<?php echo number_format($bus_data['route_fare'] ?? $schedule_data['fare_amount'] ?? 0, 2); ?></p>
+                                <?php if ($booking_data['discount_type'] === 'student' && $booking_data['discount_verified'] == 1): ?>
+                                <p>-₱<?php echo number_format(($bus_data['route_fare'] ?? $schedule_data['fare_amount'] ?? 0) * 0.2, 2); ?></p>
+                                <?php endif; ?>
                             </div>
                         </div>
                         <div class="divider"></div>
@@ -600,6 +595,25 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
                         <i class="fas fa-print me-2"></i>Print Receipt
                     </button>
                 </div>
+                
+                <?php if (isset($_GET['debug'])): ?>
+                <!-- Debug Information -->
+                <div class="debug-info alert alert-info mt-4">
+                    <h5>Debug Information:</h5>
+                    <?php foreach($debug_messages as $message): ?>
+                        <p><?php echo htmlspecialchars($message); ?></p>
+                    <?php endforeach; ?>
+                    
+                    <h6>Booking Data:</h6>
+                    <pre><?php print_r($booking_data); ?></pre>
+                    
+                    <h6>Bus Data:</h6>
+                    <pre><?php print_r($bus_data); ?></pre>
+                    
+                    <h6>Schedule Data:</h6>
+                    <pre><?php print_r($schedule_data ?? 'Not found'); ?></pre>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -632,7 +646,7 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
             </div>
             <hr class="bg-light">
             <div class="text-center">
-                <p>&copy; 2025 Ceres Bus Terminal - ISAT-U Commuters Ticket System. All rights reserved.</p>
+                <p>&copy; <?php echo date('Y'); ?> Ceres Bus Terminal - ISAT-U Commuters Ticket System. All rights reserved.</p>
             </div>
         </div>
     </footer>
@@ -640,14 +654,11 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         function printReceipt() {
-            // Set print-specific styles
             const originalTitle = document.title;
             document.title = "Ceres Bus Ticket System - " + "<?php echo htmlspecialchars($booking_data['booking_reference'] ?? 'RECEIPT'); ?>";
             
-            // Print the page
             window.print();
             
-            // Restore the original title
             setTimeout(function() {
                 document.title = originalTitle;
             }, 500);
@@ -655,21 +666,13 @@ $fare_amount = isset($route_data['fare']) ? $route_data['fare'] : 0.00;
             return false;
         }
         
-        // Replace onclick handler for print buttons
-        document.querySelectorAll('button[onclick="window.print()"]').forEach(function(button) {
-            button.onclick = printReceipt;
-        });
-        
-        // Add keyboard shortcut for printing (Ctrl+P)
+        // Keyboard shortcut for printing (Ctrl+P)
         document.addEventListener('keydown', function(e) {
-            // Check if Ctrl+P is pressed
             if (e.ctrlKey && e.key === 'p') {
-                // Prevent the default print dialog
                 e.preventDefault();
-                // Call our custom print function
                 printReceipt();
             }
         });
     </script>
-    </body>
+</body>
 </html>

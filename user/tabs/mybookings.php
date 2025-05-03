@@ -348,7 +348,7 @@ try {
                             <a href="../dashboard.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-tachometer-alt me-2"></i>Dashboard
                             </a>
-                            <a href="../profile.php" class="list-group-item list-group-item-action">
+                            <a href="profile.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-user me-2"></i>My Profile
                             </a>
                             <a href="mybookings.php" class="list-group-item list-group-item-action active">

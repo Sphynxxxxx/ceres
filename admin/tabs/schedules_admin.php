@@ -187,6 +187,18 @@ try {
     $whereParams = [];
     $paramTypes = "";
     
+    // Add search filter FIRST - BEFORE other filters
+    if (isset($_GET['search']) && !empty($_GET['search'])) {
+        $searchTerm = "%" . $_GET['search'] . "%";
+        $whereConditions[] = "(s.origin LIKE ? OR s.destination LIKE ? OR b.plate_number LIKE ? OR s.trip_number LIKE ? OR b.route_name LIKE ?)";
+        $whereParams[] = $searchTerm;
+        $whereParams[] = $searchTerm;
+        $whereParams[] = $searchTerm;
+        $whereParams[] = $searchTerm;
+        $whereParams[] = $searchTerm;
+        $paramTypes .= "sssss";
+    }
+    
     // Filter by origin
     if (isset($_GET['filter_origin']) && !empty($_GET['filter_origin'])) {
         $whereConditions[] = "s.origin LIKE ?";
@@ -219,7 +231,8 @@ try {
     if ($bookings_table_exists) {
         $baseQuery = "SELECT s.*, 
                      b.plate_number, 
-                     b.bus_type, 
+                     b.bus_type,
+                     b.route_name, 
                      (SELECT COUNT(*) FROM bookings WHERE bus_id = s.bus_id AND DATE(booking_date) = ?) as booking_count
                      FROM schedules s 
                      JOIN buses b ON s.bus_id = b.id";
@@ -231,7 +244,8 @@ try {
         // Bookings table doesn't exist, skip the booking count
         $baseQuery = "SELECT s.*, 
                      b.plate_number, 
-                     b.bus_type, 
+                     b.bus_type,
+                     b.route_name, 
                      0 as booking_count
                      FROM schedules s 
                      JOIN buses b ON s.bus_id = b.id";
@@ -247,6 +261,11 @@ try {
     
     // Prepare and execute the query
     if ($bookings_table_exists && !empty($whereParams)) {
+        $stmt = $conn->prepare($baseQuery);
+        $stmt->bind_param($paramTypes, ...$whereParams);
+        $stmt->execute();
+        $result = $stmt->get_result();
+    } elseif (!$bookings_table_exists && !empty($whereParams) && !empty($paramTypes)) {
         $stmt = $conn->prepare($baseQuery);
         $stmt->bind_param($paramTypes, ...$whereParams);
         $stmt->execute();
@@ -292,9 +311,17 @@ try {
     $error_message = "Error fetching routes data: " . $e->getMessage();
 }
 
-
+// Add search filter
+if (isset($_GET['search']) && !empty($_GET['search'])) {
+    $searchTerm = "%" . $_GET['search'] . "%";
+    $whereConditions[] = "(s.origin LIKE ? OR s.destination LIKE ? OR b.plate_number LIKE ? OR s.trip_number LIKE ?)";
+    $whereParams[] = $searchTerm;
+    $whereParams[] = $searchTerm;
+    $whereParams[] = $searchTerm;
+    $whereParams[] = $searchTerm;
+    $paramTypes .= "ssss";
+}
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -443,6 +470,12 @@ try {
                         <span>Payments</span>
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="inquiries.php">
+                        <i class="fas fa-envelope"></i>
+                        <span>Inquiries</span>
+                    </a>
+                </li>
             </ul>
         </nav>
 
@@ -455,9 +488,9 @@ try {
                         <i class="fas fa-bars"></i>
                     </button>
                     <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                        <form class="d-flex ms-auto">
+                        <form class="d-flex ms-auto" action="schedules_admin.php" method="get">
                             <div class="input-group">
-                                <input class="form-control" type="search" placeholder="Search schedules" aria-label="Search">
+                                <input class="form-control" type="search" name="search" placeholder="Search schedules" aria-label="Search" value="<?php echo isset($_GET['search']) ? htmlspecialchars($_GET['search']) : ''; ?>">
                                 <button class="btn btn-outline-primary" type="submit">
                                     <i class="fas fa-search"></i>
                                 </button>
@@ -472,9 +505,9 @@ try {
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h2><i class="fas fa-calendar-alt me-2"></i>Schedule Management</h2>
                     <div>
-                        <?php if (count($schedules) > 0 && !empty($_GET['filter_origin']) || !empty($_GET['filter_destination']) || !empty($_GET['filter_status']) || !empty($_GET['filter_trip'])): ?>
+                        <?php if (count($schedules) > 0 && (isset($_GET['search']) || !empty($_GET['filter_origin']) || !empty($_GET['filter_destination']) || !empty($_GET['filter_status']) || !empty($_GET['filter_trip']))): ?>
                             <a href="schedules_admin.php" class="btn btn-outline-secondary me-2">
-                                <i class="fas fa-times me-1"></i> Clear Filters
+                                <i class="fas fa-times me-1"></i> Clear <?php echo isset($_GET['search']) ? 'Search & ' : ''; ?>Filters
                             </a>
                         <?php endif; ?>
                         <?php if ($action === 'view'): ?>
@@ -614,10 +647,6 @@ try {
                                         
                                         <h6 class="mb-2">Trip Types:</h6>
                                         <ul class="list-group">
-                                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                                One-time Trip
-                                                <span class="badge bg-secondary rounded-pill">Single occurrence</span>
-                                            </li>
                                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                                 Recurring Trip
                                                 <span class="badge bg-primary rounded-pill">Daily schedule</span>
@@ -1081,6 +1110,27 @@ try {
             
             if (origin && destination && departureTime) {
                 fetchRouteDuration(origin, destination, departureTime);
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Highlight search terms
+            const searchInput = document.querySelector('input[name="search"]');
+            if (searchInput && searchInput.value) {
+                const searchTerm = searchInput.value.toLowerCase();
+                const scheduleRows = document.querySelectorAll('tbody tr');
+                
+                scheduleRows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    if (text.includes(searchTerm)) {
+                        const cells = row.querySelectorAll('td');
+                        cells.forEach(cell => {
+                            if (cell.textContent.toLowerCase().includes(searchTerm)) {
+                                cell.style.backgroundColor = '#fff3cd';
+                            }
+                        });
+                    }
+                });
             }
         });
         

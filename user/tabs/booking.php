@@ -29,9 +29,12 @@ if ($conn->connect_error) {
 }
 
 // Initialize variables
+$selected_origin = isset($_GET['origin']) ? urldecode($_GET['origin']) : '';
+$selected_destination = isset($_GET['destination']) ? urldecode($_GET['destination']) : '';
 $selected_date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
-$selected_origin = isset($_GET['origin']) ? $_GET['origin'] : '';
-$selected_destination = isset($_GET['destination']) ? $_GET['destination'] : '';
+$selected_bus_id = isset($_GET['bus_id']) ? intval($_GET['bus_id']) : 0;
+$selected_trip = isset($_GET['trip']) ? urldecode($_GET['trip']) : '';
+$selected_schedule_id = isset($_GET['schedule_id']) ? intval($_GET['schedule_id']) : 0;
 $booking_success = false;
 $booking_error = '';
 $booking_reference = '';
@@ -396,22 +399,48 @@ if (!empty($selected_origin) && !empty($selected_destination)) {
         error_log("Origin: $selected_origin");
         error_log("Destination: $selected_destination");
         error_log("Date: $selected_date");
+        error_log("Selected Bus ID: $selected_bus_id");
 
-        // Updated query to use route_name from buses table
-        $buses_query = "SELECT b.id, b.bus_type, b.seat_capacity, b.plate_number, 
-                b.driver_name, b.conductor_name, b.status, b.route_name,
-                s.departure_time, s.arrival_time, s.trip_number, 
+        // Modified query to get all schedules for each bus
+        $buses_query = "SELECT 
+                b.id as bus_id, 
+                b.bus_type, 
+                b.seat_capacity, 
+                b.plate_number, 
+                b.driver_name, 
+                b.conductor_name, 
+                b.status, 
+                b.route_name,
+                s.id as schedule_id,
+                s.departure_time, 
+                s.arrival_time, 
+                s.trip_number,
+                s.recurring,
+                s.date as schedule_date,
                 r.fare as fare_amount,
                 (SELECT COUNT(*) FROM bookings 
-                WHERE bus_id = b.id AND DATE(booking_date) = ? AND booking_status = 'confirmed') as booked_seats
-                FROM buses b
-                LEFT JOIN routes r ON b.route_name LIKE CONCAT(r.origin, ' → ', r.destination)
-                LEFT JOIN schedules s ON b.id = s.bus_id
-                WHERE 
-                    b.route_name LIKE ? 
-                    AND b.status = 'Active' 
-                GROUP BY b.id
-                ORDER BY s.departure_time";
+                 WHERE bus_id = b.id 
+                 AND DATE(booking_date) = ? 
+                 AND booking_status = 'confirmed'
+                 AND trip_number = s.trip_number) as booked_seats
+            FROM buses b
+            LEFT JOIN routes r ON b.route_name LIKE CONCAT(r.origin, ' → ', r.destination)
+            LEFT JOIN schedules s ON b.id = s.bus_id
+            WHERE 
+                b.route_name LIKE ? 
+                AND b.status = 'Active'
+                AND s.status = 'active'
+                AND (
+                    s.recurring = 1 
+                    OR (s.recurring = 0 AND s.date = ?)
+                )";
+        
+        // If a specific bus_id is provided, filter by it
+        if ($selected_bus_id > 0) {
+            $buses_query .= " AND b.id = ?";
+        }
+        
+        $buses_query .= " ORDER BY b.id, s.departure_time";
         
         // Prepare and execute the statement
         $buses_stmt = $conn->prepare($buses_query);
@@ -420,7 +449,11 @@ if (!empty($selected_origin) && !empty($selected_destination)) {
         $route_pattern = '%' . $selected_origin . ' → ' . $selected_destination . '%';
         
         // Bind parameters
-        $buses_stmt->bind_param("ss", $selected_date, $route_pattern);
+        if ($selected_bus_id > 0) {
+            $buses_stmt->bind_param("sssi", $selected_date, $route_pattern, $selected_date, $selected_bus_id);
+        } else {
+            $buses_stmt->bind_param("sss", $selected_date, $route_pattern, $selected_date);
+        }
         
         // Execute and check for errors
         if (!$buses_stmt->execute()) {
@@ -431,7 +464,7 @@ if (!empty($selected_origin) && !empty($selected_destination)) {
         // Get results
         $buses_result = $buses_stmt->get_result();
         
-        // Fetch buses
+        // Fetch all bus and schedule combinations
         while ($row = $buses_result->fetch_assoc()) {
             // Format times
             $row['departure_time'] = date('h:i A', strtotime($row['departure_time']));
@@ -445,22 +478,20 @@ if (!empty($selected_origin) && !empty($selected_destination)) {
             $row['origin'] = $route_parts[0] ?? $selected_origin;
             $row['destination'] = $route_parts[1] ?? $selected_destination;
             
+            // For display purposes, use bus_id as the id
+            $row['id'] = $row['bus_id'];
+            
+            // If trip_number is empty, set a default
+            if (empty($row['trip_number'])) {
+                $row['trip_number'] = 'Trip';
+            }
+            
             $available_buses[] = $row;
         }
         
         // Diagnostic logging for found buses
-        error_log("Number of buses found: " . count($available_buses));
+        error_log("Number of bus trips found: " . count($available_buses));
         
-        // If no buses found, log additional diagnostic information
-        if (count($available_buses) === 0) {
-            // Log all buses and their route names
-            $all_buses_query = "SELECT id, route_name, status FROM buses";
-            $all_buses_result = $conn->query($all_buses_query);
-            error_log("All Buses:");
-            while ($bus = $all_buses_result->fetch_assoc()) {
-                error_log("Bus ID: {$bus['id']}, Route Name: {$bus['route_name']}, Status: {$bus['status']}");
-            }
-        }
     } catch (Exception $e) {
         error_log("Error fetching buses: " . $e->getMessage());
     }
@@ -995,6 +1026,7 @@ if ($current_bus_id > 0) {
                                             <?php foreach ($available_buses as $index => $bus): ?>
                                             <div class="bus-card p-3" 
                                                 data-bus-id="<?php echo $bus['id']; ?>" 
+                                                data-schedule-id="<?php echo $bus['schedule_id']; ?>"
                                                 data-fare="<?php echo $bus['fare_amount']; ?>" 
                                                 data-type="<?php echo $bus['bus_type']; ?>" 
                                                 data-capacity="<?php echo $bus['seat_capacity']; ?>" 
@@ -1037,6 +1069,11 @@ if ($current_bus_id > 0) {
                                                         <p class="mb-0 text-muted">
                                                             <small>
                                                                 <i class="fas fa-chair me-1"></i><?php echo $bus['seat_capacity']; ?> Seats
+                                                            </small>
+                                                        </p>
+                                                        <p class="mb-0 text-muted">
+                                                            <small>
+                                                                <i class="fas fa-id-card me-1"></i>Bus #<?php echo htmlspecialchars($bus['plate_number']); ?>
                                                             </small>
                                                         </p>
                                                     </div>
@@ -1093,6 +1130,7 @@ if ($current_bus_id > 0) {
                                     </div>
                                 </div>
                                 <?php endif; ?>
+
                                 
                                 <!-- Seat Selection (Step 3) -->
                                 <div class="card mb-4" id="seat-selection" style="display: none;">
@@ -1425,7 +1463,7 @@ if ($current_bus_id > 0) {
                                                                 </div>
                                                                 <div class="col-md-5 text-center">
                                                                     <div class="qr-code-container p-2 bg-white border rounded mb-2">
-                                                                        <img src="../assets/QRmaya.jpg" alt="PayMaya QR Code" class="img-fluid mb-2" style="max-width: 150px;">
+                                                                        <img src="../assets/QRgcash.jpg" alt="PayMaya QR Code" class="img-fluid mb-2" style="max-width: 150px;">
                                                                         <!-- Fallback if image unavailable -->
                                                                         <div class="qr-fallback d-none border border-primary p-4 rounded bg-light text-center mb-2" style="width: 150px; height: 150px; margin: 0 auto;">
                                                                             <i class="fas fa-qrcode fa-5x text-primary mb-2"></i>
@@ -2183,6 +2221,37 @@ if ($current_bus_id > 0) {
                 document.getElementById('proceedToConfirmBtn').disabled = false;
             });
         });
+
+        document.getElementById('date').addEventListener('change', function() {
+            const selectedDate = this.value;
+            
+            // Update the booking summary date display
+            const summaryDateElement = document.getElementById('summary_date');
+            if (summaryDateElement && selectedDate) {
+                // Format the date nicely
+                const dateObj = new Date(selectedDate);
+                const options = { year: 'numeric', month: 'long', day: 'numeric' };
+                const formattedDate = dateObj.toLocaleDateString('en-US', options);
+                
+                summaryDateElement.textContent = formattedDate;
+            }
+            
+            // Update the hidden input for booking date
+            const summaryBookingDate = document.getElementById('summary_booking_date');
+            if (summaryBookingDate) {
+                summaryBookingDate.value = selectedDate;
+            }
+        });
+
+        // Initial load: trigger date change event if date already has a value
+        document.addEventListener('DOMContentLoaded', function() {
+            const dateInput = document.getElementById('date');
+            if (dateInput && dateInput.value) {
+                // Trigger the change event to update the summary
+                const event = new Event('change');
+                dateInput.dispatchEvent(event);
+            }
+        });
         
         // Back to seat selection button
         document.getElementById('backToSeatBtn').addEventListener('click', function() {
@@ -2838,6 +2907,18 @@ if ($current_bus_id > 0) {
                 setTimeout(() => {
                     fareElement.classList.remove('fare-updated');
                 }, 2000);
+            }
+        });
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const selectedTrip = "<?php echo $selected_trip; ?>";
+            if (selectedTrip) {
+                document.querySelectorAll(".bus-card").forEach(card => {
+                    const tripNumber = card.getAttribute("data-trip-number");
+                    if (tripNumber !== selectedTrip) {
+                        card.style.display = "none"; // Hide other trips
+                    }
+                });
             }
         });
 
