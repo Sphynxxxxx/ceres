@@ -2,7 +2,6 @@
 --NEED TO UPDATE--
 
 --NEED TO FIX--
-1. on schedule.php the Book this bus button need to path on booking.php that automatic display on the specific Select your Route
 
 2. in mybookings.php when Payment Method is on counter cannot refund
 
@@ -12,6 +11,5 @@
 
 
 --NEED TO ADD--
-Bus Stop Locations (locations.php)
-Ticket Fares (fares.php)
+
  

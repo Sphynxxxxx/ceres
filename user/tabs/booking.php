@@ -1486,9 +1486,9 @@ if ($current_bus_id > 0) {
                                             <button type="button" class="btn btn-secondary" id="backToSeatBtn">
                                                 <i class="fas fa-arrow-left me-2"></i>Back to Seat Selection
                                             </button>
-                                            <button type="button" class="btn btn-success" id="proceedToConfirmBtn" disabled>
+                                            <!--<button type="button" class="btn btn-success" id="proceedToConfirmBtn" disabled>
                                                 <i class="fas fa-check-circle me-2"></i>Proceed to Confirm
-                                            </button>
+                                            </button>-->
                                         </div>
                                     </div>
                                 </div>
@@ -2267,19 +2267,19 @@ if ($current_bus_id > 0) {
         });
         
         // Proceed to confirmation button
-        document.getElementById('proceedToConfirmBtn').addEventListener('click', function() {
-            // Scroll to summary card for final confirmation
-            document.querySelector('.ticket-summary-card').scrollIntoView({ behavior: 'smooth' });
-            
-            // Add a pulse animation to the confirm booking button
-            const confirmBtn = document.getElementById('confirmBookingBtn');
-            confirmBtn.classList.add('pulse-animation');
-            
-            // Remove animation after a few seconds
-            setTimeout(() => {
-                confirmBtn.classList.remove('pulse-animation');
-            }, 2000);
-        });
+        //document.getElementById('proceedToConfirmBtn').addEventListener('click', function() {
+        //    // Scroll to summary card for final confirmation
+        //    document.querySelector('.ticket-summary-card').scrollIntoView({ behavior: 'smooth' });
+        //    
+        //    // Add a pulse animation to the confirm booking button
+        //    const confirmBtn = document.getElementById('confirmBookingBtn');
+        //    confirmBtn.classList.add('pulse-animation');
+        //    
+        //    // Remove animation after a few seconds
+        //    setTimeout(() => {
+        //        confirmBtn.classList.remove('pulse-animation');
+        //    }, 2000);
+        //});
         
         // Form validation
         document.getElementById('bookingForm').addEventListener('submit', function(e) {

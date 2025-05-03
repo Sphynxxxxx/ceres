@@ -111,9 +111,6 @@ try {
                             <a href="tabs/mybookings.php" class="list-group-item list-group-item-action">
                                 <i class="fas fa-ticket-alt me-2"></i>My Bookings
                             </a>
-                            <a href="tabs/booking.php" class="list-group-item list-group-item-action">
-                                <i class="fas fa-plus-circle me-2"></i>Book New Ticket
-                            </a>
                             <a href="logout.php" class="list-group-item list-group-item-action text-danger">
                                 <i class="fas fa-sign-out-alt me-2"></i>Logout
                             </a>
@@ -218,7 +215,7 @@ try {
                                         </div>
                                         <h5>Bus Stop Locations</h5>
                                         <p>Find detailed information about all bus stops and terminals.</p>
-                                        <a href="locations.php" class="btn btn-outline-warning w-100">View Locations</a>
+                                        <a href="tabs/locations.php" class="btn btn-outline-warning w-100">View Locations</a>
                                     </div>
                                 </div>
                             </div>
@@ -235,7 +232,7 @@ try {
                                         </div>
                                         <h5>Ticket Fares</h5>
                                         <p>Check ticket prices for different routes and plan your budget.</p>
-                                        <a href="fares.php" class="btn btn-outline-warning w-100">View Fares</a>
+                                        <a href="tabs/fares.php" class="btn btn-outline-warning w-100">View Fares</a>
                                     </div>
                                 </div>
                             </div>

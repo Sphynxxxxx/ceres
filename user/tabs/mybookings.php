@@ -354,9 +354,6 @@ try {
                             <a href="mybookings.php" class="list-group-item list-group-item-action active">
                                 <i class="fas fa-ticket-alt me-2"></i>My Bookings
                             </a>
-                            <a href="booking.php" class="list-group-item list-group-item-action">
-                                <i class="fas fa-plus-circle me-2"></i>Book New Ticket
-                            </a>
                             <a href="../logout.php" class="list-group-item list-group-item-action text-danger">
                                 <i class="fas fa-sign-out-alt me-2"></i>Logout
                             </a>
