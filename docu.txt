@@ -1,4 +1,8 @@
 
+composer install
+composer require phpmailer/phpmailer
+
+
 --NEED TO UPDATE--
 
 
