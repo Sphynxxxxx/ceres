@@ -67,9 +67,11 @@ try {
     <!-- Navigation Bar -->
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="dashboard.php">
-                <i class="fas fa-bus-alt me-2"></i>Ceres Bus for ISAT-U Commuters
+            <a class="navbar-brand d-flex flex-wrap align-items-center" href="dashboard.php">
+                <i class="fas fa-bus-alt me-2"></i>
+                <span class="text-wrap">Ceres Bus for ISAT-U Commuters</span>
             </a>
+
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>

@@ -88,8 +88,9 @@
     <!-- Navigation Bar -->
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="#">
-                <i class="fas fa-bus-alt me-2"></i>Ceres Bus for ISAT-U Commuters
+            <a class="navbar-brand d-flex flex-wrap align-items-center" href="dashboard.php">
+                <i class="fas fa-bus-alt me-2"></i>
+                <span class="text-wrap">Ceres Bus for ISAT-U Commuters</span>
             </a>
             <div class="d-flex">
                 <a href="user/login.php" class="btn btn-outline-light me-2">Login</a>

@@ -223,9 +223,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             <div class="mb-3">
                                 <label for="password" class="form-label required-field">Password</label>
                                 <input type="password" class="form-control" id="password" name="password" required>
-                                <div class="forgot-password">
-                                    <a href="forgot_password.php" class="text-decoration-none">Forgot password?</a>
-                                </div>
                             </div>
                             
                             <div class="mb-3 form-check">
