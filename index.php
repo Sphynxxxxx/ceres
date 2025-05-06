@@ -106,7 +106,7 @@
                 <p>Book your Ceres bus tickets online with our simple platform designed exclusively for ISAT-U students, faculty, and staff.</p>
                 <div class="auth-buttons">
                     <a href="user/registration.php" class="btn btn-warning btn-lg">Get Started</a>
-                    <a href="#" class="btn btn-outline-light btn-lg">Learn More</a>
+                    <!--<a href="#" class="btn btn-outline-light btn-lg">Learn More</a>-->
                 </div>
             </div>
         </div>
