@@ -12,20 +12,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $user_id = isset($_POST['user_id']) ? intval($_POST['user_id']) : 0;
     
     if ($user_id > 0) {
-        // Prepare and execute delete query
-        $delete_query = "DELETE FROM users WHERE id = ?";
-        $stmt = $conn->prepare($delete_query);
-        $stmt->bind_param("i", $user_id);
+        // Start a transaction
+        $conn->begin_transaction();
         
-        if ($stmt->execute()) {
+        try {
+            // First, delete or update any related records in contact_messages
+            $delete_messages_query = "DELETE FROM contact_messages WHERE user_id = ?";
+            $stmt = $conn->prepare($delete_messages_query);
+            $stmt->bind_param("i", $user_id);
+            $stmt->execute();
+            
+            // Now, delete the user
+            $delete_query = "DELETE FROM users WHERE id = ?";
+            $stmt = $conn->prepare($delete_query);
+            $stmt->bind_param("i", $user_id);
+            $stmt->execute();
+            
+            // If everything went well, commit the transaction
+            $conn->commit();
+            
             $_SESSION['message'] = "User successfully deleted.";
             $_SESSION['message_type'] = "success";
-        } else {
-            $_SESSION['message'] = "Error deleting user: " . $conn->error;
+        } catch (Exception $e) {
+            // If there was an error, roll back the transaction
+            $conn->rollback();
+            
+            $_SESSION['message'] = "Error deleting user: " . $e->getMessage();
             $_SESSION['message_type'] = "danger";
         }
-        
-        $stmt->close();
         
         // Redirect to prevent form resubmission
         header("Location: users_admin.php");

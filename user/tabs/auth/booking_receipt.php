@@ -316,6 +316,33 @@ if ($payment_status === 'awaiting_verificatio') {
             margin: 15px 0;
         }
         
+        @media only screen and (max-width: 767px) {
+            .receipt-container {
+                padding: 10px;
+                margin: 0;
+            }
+            
+            .col-md-6 {
+                margin-bottom: 15px;
+            }
+            
+            .ticket-info, .passenger-info, .bus-details, .fare-details {
+                padding: 10px;
+            }
+            
+            .ticket-info .icon, .passenger-info .icon {
+                width: 25px;
+                font-size: 1rem;
+            }
+            
+            .barcode {
+                height: 50px;
+            }
+            
+            .qr-code {
+                height: 80px;
+            }
+        }
         /* Print-specific styles */
         @media print {
             body {
@@ -660,20 +687,95 @@ if ($payment_status === 'awaiting_verificatio') {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Replace the existing printReceipt function with this one
         function printReceipt() {
+            // Set receipt title with booking reference
             const originalTitle = document.title;
-            document.title = "Ceres Bus Ticket System - " + "<?php echo htmlspecialchars($booking_data['booking_reference'] ?? 'RECEIPT'); ?>";
+            const bookingRef = document.querySelector('.booking-ref').textContent.trim().replace('Booking Reference: ', '');
+            document.title = "Ceres Bus Ticket - " + bookingRef;
             
+            // Mobile-specific adjustments before printing
+            const receiptContainer = document.querySelector('.receipt-container');
+            const originalPadding = receiptContainer.style.padding;
+            
+            // Adjust for better mobile printing
+            if (window.innerWidth <= 768) {
+                // Apply mobile-friendly styles
+                receiptContainer.style.padding = '8px';
+                
+                // Adjust font size for mobile
+                const style = document.createElement('style');
+                style.id = 'print-mobile-styles';
+                style.innerHTML = `
+                    @media print {
+                        body {
+                            margin: 0;
+                            padding: 0;
+                            font-size: 11pt;
+                        }
+                        .receipt-container {
+                            box-shadow: none;
+                            padding: 5px;
+                            max-width: 100%;
+                        }
+                        .ticket-info, .passenger-info, .bus-details, .fare-details {
+                            padding: 8px;
+                        }
+                        .ticket-info .icon, .passenger-info .icon {
+                            width: 20px;
+                            font-size: 0.9rem;
+                        }
+                        .barcode {
+                            height: 50px;
+                        }
+                        .qr-code {
+                            height: 80px;
+                        }
+                        .receipt-title {
+                            font-size: 1.2rem;
+                        }
+                        h5 {
+                            font-size: 1rem;
+                        }
+                        p {
+                            margin-bottom: 0.4rem;
+                        }
+                        .divider {
+                            margin: 8px 0;
+                        }
+                        .col-md-6 {
+                            width: 100%;
+                            float: none;
+                            margin-bottom: 10px;
+                        }
+                        @page {
+                            size: auto;
+                            margin: 5mm;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            // Execute browser print
             window.print();
             
+            // Restore original settings after print dialog closes
             setTimeout(function() {
                 document.title = originalTitle;
-            }, 500);
+                receiptContainer.style.padding = originalPadding;
+                
+                // Remove mobile-specific styles
+                const mobileStyles = document.getElementById('print-mobile-styles');
+                if (mobileStyles) {
+                    document.head.removeChild(mobileStyles);
+                }
+            }, 1000);
             
             return false;
         }
-        
-        // Keyboard shortcut for printing (Ctrl+P)
+
+        // Handle keyboard shortcut for printing (Ctrl+P)
         document.addEventListener('keydown', function(e) {
             if (e.ctrlKey && e.key === 'p') {
                 e.preventDefault();
