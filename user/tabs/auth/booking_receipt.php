@@ -5,203 +5,64 @@ if (session_status() == PHP_SESSION_NONE) {
 
 // Check if user is logged in
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
-    // Redirect to login page
-    header("Location: login.php");
+    header("Location: ../../login.php");
     exit;
 }
-
-// Get user info from session
-$user_id = $_SESSION['user_id'];
-$user_name = $_SESSION['user_name'];
-$user_email = $_SESSION['user_email'];
-
-// Initialize debug array
-$debug_messages = [];
 
 // Database connection
 require_once "../../../backend/connections/config.php";
-require_once "../../../vendor/autoload.php";
 
-// Check if connection exists and is valid
-if (!isset($conn) || !($conn instanceof mysqli)) {
-    die("Database connection not established");
-}
+$ticket_group_id = isset($_GET['ticket_group_id']) ? $_GET['ticket_group_id'] : '';
 
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
-
-// Check if booking ID is provided
-if (!isset($_GET['booking_id']) || empty($_GET['booking_id'])) {
-    header("Location: booking.php");
+if (empty($ticket_group_id)) {
+    header("Location: ../mybookings.php");
     exit;
 }
 
-$booking_id = intval($_GET['booking_id']);
-$booking_data = null;
-$bus_data = null;
-$schedule_data = null;
-
-// Fetch booking details with proper joins
+// Fetch all bookings in this group
 try {
-    $debug_messages[] = "Starting fetch of booking ID: " . $booking_id;
+    $query = "SELECT b.*, u.first_name, u.last_name, u.email, u.contact_number,
+                     bus.bus_type, bus.plate_number, bus.driver_name, bus.conductor_name, bus.route_name,
+                     r.origin, r.destination, r.distance, r.estimated_duration, r.fare as base_fare
+              FROM bookings b
+              JOIN users u ON b.user_id = u.id
+              JOIN buses bus ON b.bus_id = bus.id
+              LEFT JOIN routes r ON bus.route_name LIKE CONCAT(r.origin, ' → ', r.destination)
+              WHERE b.ticket_group_id = ?
+              ORDER BY b.seat_number ASC";
     
-    // Fetch booking with user details
-    $booking_query = "SELECT b.*, 
-                     u.email as passenger_email,
-                     u.contact_number as passenger_phone,
-                     u.full_name as passenger_name,
-                     u.first_name,
-                     u.last_name
-                     FROM bookings b
-                     LEFT JOIN users u ON b.user_id = u.id
-                     WHERE b.id = ? AND b.user_id = ?";
-    $booking_stmt = $conn->prepare($booking_query);
-    $booking_stmt->bind_param("ii", $booking_id, $user_id);
-    $booking_stmt->execute();
-    $booking_result = $booking_stmt->get_result();
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("s", $ticket_group_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
     
-    if ($booking_result && $booking_result->num_rows > 0) {
-        $booking_data = $booking_result->fetch_assoc();
-        $debug_messages[] = "Booking data fetched successfully";
-        
-        // Check if booking_reference exists, if not generate one
-        if (empty($booking_data['booking_reference'])) {
-            $booking_reference = 'BK-' . date('Ymd') . '-' . $booking_id;
-            
-            // Update the booking with the reference number
-            $update_query = "UPDATE bookings SET booking_reference = ? WHERE id = ?";
-            $update_stmt = $conn->prepare($update_query);
-            $update_stmt->bind_param("si", $booking_reference, $booking_id);
-            
-            if ($update_stmt->execute()) {
-                $booking_data['booking_reference'] = $booking_reference;
-                $debug_messages[] = "Generated and saved new booking reference: " . $booking_reference;
-            }
-        }
-        
-        // Fetch bus details with route information
-        $bus_query = "SELECT b.*, r.origin, r.destination, r.fare as route_fare 
-                    FROM buses b
-                    LEFT JOIN routes r ON b.route_id = r.id
-                    WHERE b.id = ?";
-                     
-        $bus_stmt = $conn->prepare($bus_query);
-        $bus_stmt->bind_param("i", $booking_data['bus_id']);
-        $bus_stmt->execute();
-        $bus_result = $bus_stmt->get_result();
-        
-        if ($bus_result && $bus_result->num_rows > 0) {
-            $bus_data = $bus_result->fetch_assoc();
-            $debug_messages[] = "Bus data fetched successfully";
-            
-            // Fetch schedule details based on bus_id and trip_number
-            $schedule_query = "SELECT * FROM schedules 
-                             WHERE bus_id = ? AND trip_number = ?";
-            $schedule_stmt = $conn->prepare($schedule_query);
-            
-            // Debug: Log the query parameters
-            $debug_messages[] = "Looking for schedule with bus_id: " . $booking_data['bus_id'] . " and trip_number: '" . $booking_data['trip_number'] . "'";
-            
-            $schedule_stmt->bind_param("is", $booking_data['bus_id'], $booking_data['trip_number']);
-            $schedule_stmt->execute();
-            $schedule_result = $schedule_stmt->get_result();
-            
-            if ($schedule_result && $schedule_result->num_rows > 0) {
-                $schedule_data = $schedule_result->fetch_assoc();
-                $debug_messages[] = "Schedule data fetched successfully for trip: " . $booking_data['trip_number'];
-                $debug_messages[] = "Schedule ID: " . $schedule_data['id'];
-                $debug_messages[] = "Departure: " . $schedule_data['departure_time'] . ", Arrival: " . $schedule_data['arrival_time'];
-            } else {
-                // Try to find any matching schedule for this bus
-                $debug_messages[] = "No exact trip match found. Searching for ANY schedule for bus_id: " . $booking_data['bus_id'];
-                
-                // Let's check what schedules exist for this bus
-                $check_query = "SELECT id, bus_id, trip_number, departure_time, arrival_time FROM schedules WHERE bus_id = ?";
-                $check_stmt = $conn->prepare($check_query);
-                $check_stmt->bind_param("i", $booking_data['bus_id']);
-                $check_stmt->execute();
-                $check_result = $check_stmt->get_result();
-                
-                $debug_messages[] = "Available schedules for this bus:";
-                while ($row = $check_result->fetch_assoc()) {
-                    $debug_messages[] = "- Schedule ID: " . $row['id'] . ", Trip: '" . $row['trip_number'] . "', Departure: " . $row['departure_time'];
-                }
-                
-                // Now try to get the first available schedule as fallback
-                $fallback_query = "SELECT * FROM schedules WHERE bus_id = ? ORDER BY id LIMIT 1";
-                $fallback_stmt = $conn->prepare($fallback_query);
-                $fallback_stmt->bind_param("i", $booking_data['bus_id']);
-                $fallback_stmt->execute();
-                $fallback_result = $fallback_stmt->get_result();
-                
-                if ($fallback_result && $fallback_result->num_rows > 0) {
-                    $schedule_data = $fallback_result->fetch_assoc();
-                    $debug_messages[] = "Using fallback schedule data - Schedule ID: " . $schedule_data['id'];
-                } else {
-                    $debug_messages[] = "No schedule data found for bus ID: " . $booking_data['bus_id'];
-                }
-            }
-        } else {
-            $debug_messages[] = "Bus data not found for bus ID: " . $booking_data['bus_id'];
-        }
-    } else {
-        // Booking not found or doesn't belong to user
-        $debug_messages[] = "Booking not found or doesn't belong to user ID: $user_id";
+    if ($result->num_rows === 0) {
         header("Location: ../mybookings.php");
         exit;
     }
+    
+    $bookings = [];
+    while ($row = $result->fetch_assoc()) {
+        $bookings[] = $row;
+    }
+    
+    $first_booking = $bookings[0];
+    
 } catch (Exception $e) {
-    error_log("Error fetching booking details: " . $e->getMessage());
-    $debug_messages[] = "Exception: " . $e->getMessage();
+    error_log("Error fetching group booking: " . $e->getMessage());
     header("Location: ../mybookings.php");
     exit;
 }
 
-// If booking data is not retrieved, redirect
-if (!$booking_data || !$bus_data) {
-    $debug_messages[] = "Essential data missing, redirecting";
-    header("Location: ../mybookings.php");
-    exit;
-}
-
-// Format date and time
-$booking_date = strtotime($booking_data['booking_date']);
-$booking_date_formatted = date('F d, Y', $booking_date);
-$created_at_formatted = date('F d, Y h:i A', strtotime($booking_data['created_at']));
-
-// Handle potentially missing schedule data
-$departure_time = 'N/A';
-$arrival_time = 'N/A';
-
-if (isset($schedule_data['departure_time']) && !empty($schedule_data['departure_time'])) {
-    $departure_time = date('h:i A', strtotime($schedule_data['departure_time']));
-    $debug_messages[] = "Formatted departure time: " . $departure_time;
-}
-
-if (isset($schedule_data['arrival_time']) && !empty($schedule_data['arrival_time'])) {
-    $arrival_time = date('h:i A', strtotime($schedule_data['arrival_time']));
-    $debug_messages[] = "Formatted arrival time: " . $arrival_time;
-}
-
-// Set default values if data is missing
-$origin = $bus_data['origin'] ?? 'N/A';
-$destination = $bus_data['destination'] ?? 'N/A';
-$fare_amount = $schedule_data['fare_amount'] ?? $bus_data['route_fare'] ?? 0.00;
-
-// Debug trip information
-$debug_messages[] = "Trip Number from booking: " . ($booking_data['trip_number'] ?? 'Not set');
-$debug_messages[] = "Origin: " . $origin . ", Destination: " . $destination;
-
-// Apply discount if applicable
-if ($booking_data['discount_type'] === 'student' && $booking_data['discount_verified'] == 1) {
-    $fare_amount = $fare_amount * 0.8; // 20% student discount
-}
-
-// Handle payment status
-$payment_status = $booking_data['payment_status'];
-if ($payment_status === 'awaiting_verificatio') {
-    $payment_status = 'awaiting_verification';
+// Calculate total fare
+$total_fare = 0;
+$base_fare = $first_booking['base_fare'] ?? 0;
+foreach ($bookings as $booking) {
+    $ticket_fare = $base_fare;
+    if ($booking['discount_type'] !== 'regular') {
+        $ticket_fare = $base_fare * 0.8; // 20% discount
+    }
+    $total_fare += $ticket_fare;
 }
 ?>
 
@@ -210,578 +71,822 @@ if ($payment_status === 'awaiting_verificatio') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Booking Receipt - ISAT-U Ceres Bus Ticket System</title>
+    <title>Group Booking Receipt - ISAT-U Ceres Bus Ticket System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
     <link rel="stylesheet" href="../../css/navfot.css">
     <style>
-        /* Regular styles */
         .receipt-container {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
-            padding: 20px;
-            background-color: #fff;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-            border-radius: 10px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            overflow: hidden;
+            border: 1px solid #e9ecef;
         }
         
         .receipt-header {
-            padding-bottom: 20px;
-            border-bottom: 2px dashed #dee2e6;
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .receipt-header::before {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 0;
+            right: 0;
+            height: 20px;
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            clip-path: polygon(0 0, 100% 0, 95% 100%, 5% 100%);
+        }
+        
+        .receipt-body {
+            padding: 30px;
+        }
+        
+        .ticket-group-info {
+            background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            border-left: 5px solid #007bff;
+        }
+        
+        .passenger-ticket {
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
             margin-bottom: 20px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            background: white;
         }
         
-        .company-logo {
-            max-height: 80px;
+        .passenger-ticket:hover {
+            border-color: #007bff;
+            box-shadow: 0 5px 20px rgba(0,123,255,0.15);
+            transform: translateY(-2px);
         }
         
-        .receipt-title {
-            color: #28a745;
-            font-weight: 700;
-            margin-bottom: 5px;
+        .ticket-header {
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            padding: 20px;
+            border-bottom: 1px solid #dee2e6;
         }
         
-        .booking-ref {
-            background-color: #e7f1ff;
-            color: #0d6efd;
-            padding: 10px;
-            border-radius: 8px;
+        .ticket-body {
+            padding: 25px;
+        }
+        
+        .seat-number-badge {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            box-shadow: 0 4px 10px rgba(0,123,255,0.3);
+        }
+        
+        .status-badge {
+            padding: 8px 15px;
+            border-radius: 20px;
             font-weight: 600;
-            margin-bottom: 20px;
-            border: 1px dashed #0d6efd;
-        }
-        
-        .ticket-info {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .ticket-info .icon {
-            color: #0d6efd;
-            font-size: 1.2rem;
-            width: 30px;
-            text-align: center;
-        }
-        
-        .passenger-info {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .receipt-footer {
-            text-align: center;
-            padding-top: 20px;
-            border-top: 2px dashed #dee2e6;
-            margin-top: 20px;
             font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
-        .barcode {
-            height: 60px;
-            margin: 15px auto;
-            display: block;
+        .status-confirmed {
+            background: linear-gradient(135deg, #d1ecf1, #b8daff);
+            color: #0c5460;
+            border: 1px solid #bee5eb;
         }
         
-        .qr-code {
-            height: 100px;
-            margin: 15px auto;
-            display: block;
+        .status-pending {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            color: #856404;
+            border: 1px solid #ffeaa7;
         }
         
-        .action-buttons {
-            margin: 30px 0;
+        .payment-status {
+            font-size: 0.9rem;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-weight: 500;
         }
         
-        .bus-details {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
+        .payment-verified {
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            color: #155724;
         }
         
-        .fare-details {
-            background-color: #e7f1ff;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
+        .payment-pending {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            color: #856404;
         }
         
-        .divider {
-            height: 2px;
-            background-color: #dee2e6;
-            margin: 15px 0;
+        .payment-awaiting {
+            background: linear-gradient(135deg, #cce5ff, #b3d9ff);
+            color: #004085;
         }
         
-        @media only screen and (max-width: 767px) {
-            .receipt-container {
-                padding: 10px;
-                margin: 0;
-            }
-            
-            .col-md-6 {
-                margin-bottom: 15px;
-            }
-            
-            .ticket-info, .passenger-info, .bus-details, .fare-details {
-                padding: 10px;
-            }
-            
-            .ticket-info .icon, .passenger-info .icon {
-                width: 25px;
-                font-size: 1rem;
-            }
-            
-            .barcode {
-                height: 50px;
-            }
-            
-            .qr-code {
-                height: 80px;
-            }
+        .summary-section {
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 30px;
+            border-left: 5px solid #28a745;
         }
-        /* Print-specific styles */
+        
+        .qr-code-section {
+            text-align: center;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            margin: 25px 0;
+            border: 2px dashed #007bff;
+        }
+        
+        .instructions-box {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            border: 1px solid #ffeaa7;
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 25px;
+        }
+        
         @media print {
-            body {
-                background-color: #fff;
-                font-size: 12pt;
+            .no-print {
+                display: none !important;
             }
             
             .receipt-container {
                 box-shadow: none;
-                padding: 0;
+                border: 1px solid #ddd;
+                margin: 0;
                 max-width: 100%;
             }
             
-            .action-buttons,
-            nav,
-            footer,
-            .print-instructions,
-            .debug-info {
-                display: none !important;
+            body {
+                background: white !important;
             }
             
-            .receipt-header {
-                text-align: center;
+            .passenger-ticket:hover {
+                transform: none;
+                box-shadow: none;
             }
-            
-            .booking-ref {
-                border: 1px dashed #000;
-                background-color: transparent;
-                color: #000;
-            }
-            
-            .ticket-info,
-            .passenger-info,
-            .bus-details,
-            .fare-details {
-                background-color: transparent;
-                border: 1px solid #ddd;
-            }
-            
-            .col-md-6 {
-                width: 50%;
-                float: left;
-            }
-            
-            .barcode, .qr-code {
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-            }
+        }
+        
+        .divider {
+            height: 3px;
+            background: linear-gradient(to right, transparent, #007bff, transparent);
+            margin: 30px 0;
+            border-radius: 2px;
+        }
+        
+        .info-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        
+        .fare-display {
+            background: linear-gradient(135deg, #e8f5e8, #d4edda);
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            margin: 10px 0;
+        }
+        
+        .discount-badge {
+            background: linear-gradient(135deg, #ffc107, #ffb300);
+            color: #000;
+            padding: 4px 8px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        
+        .passenger-age-badge {
+            background: #6c757d;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            margin-left: 10px;
         }
     </style>
 </head>
 <body>
     <!-- Navigation Bar -->
-    <nav class="navbar navbar-expand-lg navbar-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark no-print">
         <div class="container">
             <a class="navbar-brand d-flex flex-wrap align-items-center" href="../../dashboard.php">
                 <i class="fas fa-bus-alt me-2"></i>
                 <span class="text-wrap">Ceres Bus for ISAT-U Commuters</span>
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="../../dashboard.php">Home</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="../routes.php">Routes</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="../schedule.php">Schedule</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="../booking.php">Book Ticket</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="../locations.php">Locations</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="../fares.php">Fares</a>
-                    </li>
-                </ul>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="../mybookings.php">
+                    <i class="fas fa-arrow-left me-1"></i>Back to My Bookings
+                </a>
             </div>
         </div>
     </nav>
 
     <div class="container py-4">
-        <div class="row">
-            <div class="col-12">
-                <div class="print-instructions alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i>This is your booking receipt. You can print this page or save it as a PDF for future reference.
+        <div class="receipt-container">
+            <!-- Receipt Header -->
+            <div class="receipt-header">
+                <h2 class="mb-3">
+                    <i class="fas fa-ticket-alt me-3"></i>
+                    Group Booking Receipt
+                </h2>
+                <div class="row">
+                    <div class="col-md-4">
+                        <h5><i class="fas fa-users me-2"></i><?php echo count($bookings); ?> Ticket(s)</h5>
+                    </div>
+                    <div class="col-md-4">
+                        <h5><i class="fas fa-id-badge me-2"></i><?php echo htmlspecialchars($ticket_group_id); ?></h5>
+                    </div>
+                    <div class="col-md-4">
+                        <h5><i class="fas fa-calendar me-2"></i><?php echo date('M d, Y', strtotime($first_booking['created_at'])); ?></h5>
+                    </div>
                 </div>
-                
-                <!-- Receipt Container -->
-                <div class="receipt-container">
-                    <!-- Receipt Header -->
-                    <div class="receipt-header text-center">
-                        <h3 class="receipt-title">Ceres Bus Ticket System</h3>
-                        <p class="mb-0">ISAT-U Commuters Special Service</p>
-                        <p class="mb-0">Ceres Bus Terminal, Iloilo City</p>
-                    </div>
-                    
-                    <!-- Booking Reference -->
-                    <div class="booking-ref text-center">
-                        <strong>Booking Reference: </strong>
-                        <?php echo htmlspecialchars($booking_data['booking_reference'] ?? 'N/A'); ?>
-                    </div>
-                    
-                    <!-- Ticket Info -->
+            </div>
+
+            <!-- Receipt Body -->
+            <div class="receipt-body">
+                <!-- Group Information -->
+                <div class="ticket-group-info">
                     <div class="row">
                         <div class="col-md-6">
-                            <div class="ticket-info">
-                                <h5><i class="fas fa-ticket-alt me-2"></i>Ticket Information</h5>
-                                <div class="divider"></div>
-                                <p>
-                                    <span class="icon"><i class="fas fa-route"></i></span>
-                                    <strong>Route:</strong> <?php echo htmlspecialchars(ucfirst($origin)); ?> to <?php echo htmlspecialchars(ucfirst($destination)); ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-tag"></i></span>
-                                    <strong>Trip Number:</strong> <?php echo htmlspecialchars($booking_data['trip_number']); ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-calendar-alt"></i></span>
-                                    <strong>Travel Date:</strong> <?php echo $booking_date_formatted; ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-clock"></i></span>
-                                    <strong>Departure:</strong> <?php echo $departure_time; ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-clock"></i></span>
-                                    <strong>Arrival:</strong> <?php echo $arrival_time; ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-chair"></i></span>
-                                    <strong>Seat Number:</strong> <?php echo $booking_data['seat_number']; ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-money-bill-wave"></i></span>
-                                    <strong>Payment Method:</strong> 
-                                    <?php
-                                        $payment_method = $booking_data['payment_method'] ?? 'Not specified';
-                                        
-                                        if ($payment_method == 'counter') {
-                                            echo '<span class="badge bg-secondary">Pay at Counter</span>';
-                                        } elseif ($payment_method == 'gcash') {
-                                            echo '<span class="badge bg-primary">GCash</span>';
-                                        } elseif ($payment_method == 'paymaya') {
-                                            echo '<span class="badge bg-info">PayMaya</span>';
-                                        } else {
-                                            echo htmlspecialchars(ucfirst($payment_method));
-                                        }
-                                    ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-percentage"></i></span>
-                                    <strong>Discount Type:</strong> 
-                                    <?php 
-                                        if ($booking_data['discount_type'] === 'student') {
-                                            echo '<span class="badge bg-info">Student</span>';
-                                        } else {
-                                            echo '<span class="badge bg-secondary">Regular</span>';
-                                        }
-                                    ?>
-                                </p>
-                            </div>
+                            <h6><i class="fas fa-user-circle me-2"></i>Booked By</h6>
+                            <h5 class="mb-1 text-primary"><?php echo htmlspecialchars($first_booking['first_name'] . ' ' . $first_booking['last_name']); ?></h5>
+                            <p class="mb-1 text-muted"><i class="fas fa-envelope me-1"></i><?php echo htmlspecialchars($first_booking['email']); ?></p>
+                            <p class="mb-0 text-muted"><i class="fas fa-phone me-1"></i><?php echo htmlspecialchars($first_booking['contact_number']); ?></p>
                         </div>
-                        
                         <div class="col-md-6">
-                            <div class="passenger-info">
-                                <h5><i class="fas fa-user me-2"></i>Passenger Details</h5>
-                                <div class="divider"></div>
-                                <p>
-                                    <span class="icon"><i class="fas fa-user"></i></span>
-                                    <strong>Name:</strong> <?php echo htmlspecialchars($booking_data['passenger_name'] ?? $booking_data['first_name'] . ' ' . $booking_data['last_name']); ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-envelope"></i></span>
-                                    <strong>Email:</strong> <?php echo htmlspecialchars($booking_data['passenger_email']); ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-phone"></i></span>
-                                    <strong>Phone:</strong> <?php echo htmlspecialchars($booking_data['passenger_phone'] ?? 'N/A'); ?>
-                                </p>
-                                <p>
-                                    <span class="icon"><i class="fas fa-calendar-check"></i></span>
-                                    <strong>Booking Date:</strong> <?php echo $created_at_formatted; ?>
-                                </p>
-                            </div>
+                            <h6><i class="fas fa-route me-2"></i>Trip Details</h6>
+                            <h5 class="mb-1 text-primary"><?php echo htmlspecialchars($first_booking['origin']); ?> to <?php echo htmlspecialchars($first_booking['destination']); ?></h5>
+                            <p class="mb-1"><i class="fas fa-calendar-day me-1"></i>Date: <?php echo date('F d, Y', strtotime($first_booking['booking_date'])); ?></p>
+                            <p class="mb-1"><i class="fas fa-bus me-1"></i>Trip: <?php echo htmlspecialchars($first_booking['trip_number']); ?></p>
+                            <p class="mb-0"><i class="fas fa-id-card me-1"></i>Bus: <?php echo htmlspecialchars($first_booking['plate_number']); ?> (<?php echo htmlspecialchars($first_booking['bus_type']); ?>)</p>
                         </div>
-                    </div>
-                    
-                    <!-- Bus Details -->
-                    <div class="bus-details">
-                        <h5><i class="fas fa-bus me-2"></i>Bus Details</h5>
-                        <div class="divider"></div>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <p>
-                                    <strong>Bus ID:</strong> #<?php echo $bus_data['id'] ?? 'N/A'; ?>
-                                </p>
-                                <p>
-                                    <strong>Bus Type:</strong> <?php echo htmlspecialchars($bus_data['bus_type'] ?? 'N/A'); ?>
-                                </p>
-                                <p>
-                                    <strong>Plate Number:</strong> <?php echo htmlspecialchars($bus_data['plate_number'] ?? 'N/A'); ?>
-                                </p>
-                            </div>
-                            <div class="col-md-6">
-                                <p>
-                                    <strong>Driver:</strong> <?php echo htmlspecialchars($bus_data['driver_name'] ?? 'N/A'); ?>
-                                </p>
-                                <p>
-                                    <strong>Conductor:</strong> <?php echo htmlspecialchars($bus_data['conductor_name'] ?? 'N/A'); ?>
-                                </p>
-                                <p>
-                                    <strong>Status:</strong> 
-                                    <span class="badge bg-success"><?php echo ucfirst($booking_data['booking_status']); ?></span>
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Fare Details -->
-                    <div class="fare-details">
-                        <h5><i class="fas fa-money-bill-wave me-2"></i>Fare Details</h5>
-                        <div class="divider"></div>
-                        <div class="row">
-                            <div class="col-md-8">
-                                <p>
-                                    <strong>Base Fare:</strong>
-                                </p>
-                                <?php if ($booking_data['discount_type'] === 'student' && $booking_data['discount_verified'] == 1): ?>
-                                <p>
-                                    <strong>Student Discount (20%):</strong>
-                                </p>
-                                <?php endif; ?>
-                            </div>
-                            <div class="col-md-4 text-end">
-                                <p>₱<?php echo number_format($bus_data['route_fare'] ?? $schedule_data['fare_amount'] ?? 0, 2); ?></p>
-                                <?php if ($booking_data['discount_type'] === 'student' && $booking_data['discount_verified'] == 1): ?>
-                                <p>-₱<?php echo number_format(($bus_data['route_fare'] ?? $schedule_data['fare_amount'] ?? 0) * 0.2, 2); ?></p>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                        <div class="divider"></div>
-                        <div class="row">
-                            <div class="col-md-8">
-                                <p class="mb-0">
-                                    <strong>Total Amount:</strong>
-                                </p>
-                            </div>
-                            <div class="col-md-4 text-end">
-                                <p class="mb-0 fw-bold">₱<?php echo number_format($fare_amount, 2); ?></p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- QR Code and Barcode -->
-                    <div class="text-center">
-                        <!-- Display QR code as image (placeholder) -->
-                        <img src="https://api.qrserver.com/v1/create-qr-code/?data=<?php echo urlencode($booking_data['booking_reference'] ?? 'INVALID'); ?>&size=100x100" alt="QR Code" class="qr-code">
-                        
-                        <!-- Display a placeholder barcode for printing -->
-                        <img src="https://barcode.tec-it.com/barcode.ashx?data=<?php echo urlencode($booking_data['booking_reference'] ?? 'INVALID'); ?>&code=Code128&translate-esc=true" alt="Barcode" class="barcode">
-                    </div>
-                    
-                    <!-- Receipt Footer -->
-                    <div class="receipt-footer">
-                        <p class="mb-1">This is a computer-generated receipt and does not require a signature.</p>
-                        <p class="mb-1">Please present this receipt to the conductor upon boarding the bus.</p>
-                        <p class="mb-0">Thank you for choosing Ceres Bus for your journey!</p>
                     </div>
                 </div>
+
+                <!-- Individual Tickets -->
+                <h5 class="mb-4"><i class="fas fa-tickets-alt me-2"></i>Individual Tickets</h5>
                 
-                <!-- Action buttons -->
-                <div class="action-buttons d-flex justify-content-between mt-4">
-                    <button onclick="window.location.href='../mybookings.php'" class="btn btn-outline-primary">
-                        <i class="fas fa-arrow-left me-2"></i>Back to My Bookings
-                    </button>
-                    <button onclick="printReceipt()" class="btn btn-success">
+                <?php foreach ($bookings as $index => $booking): ?>
+                <div class="passenger-ticket">
+                    <div class="ticket-header">
+                        <div class="row align-items-center">
+                            <div class="col-md-4">
+                                <h6 class="mb-1">
+                                    <i class="fas fa-user me-2"></i>
+                                    <?php echo htmlspecialchars($booking['passenger_name'] ?? 'Passenger ' . ($index + 1)); ?>
+                                    <?php if ($booking['passenger_age']): ?>
+                                    <span class="passenger-age-badge"><?php echo $booking['passenger_age']; ?> yrs</span>
+                                    <?php endif; ?>
+                                </h6>
+                                <?php if ($booking['discount_type'] !== 'regular'): ?>
+                                <span class="discount-badge">
+                                    <i class="fas fa-tag me-1"></i><?php echo ucfirst($booking['discount_type']); ?> Discount
+                                </span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <span class="seat-number-badge">
+                                    <i class="fas fa-chair me-1"></i>Seat <?php echo $booking['seat_number']; ?>
+                                </span>
+                            </div>
+                            <div class="col-md-4 text-end">
+                                <div class="fare-display">
+                                    <?php 
+                                    $ticket_fare = $base_fare;
+                                    if ($booking['discount_type'] !== 'regular') {
+                                        $original_fare = $base_fare;
+                                        $ticket_fare = $base_fare * 0.8;
+                                        echo '<small class="text-muted"><del>₱' . number_format($original_fare, 2) . '</del></small><br>';
+                                    }
+                                    ?>
+                                    <strong class="text-success">₱<?php echo number_format($ticket_fare, 2); ?></strong>
+                                </div>
+                                <small class="text-muted">Ref: <?php echo htmlspecialchars($booking['booking_reference']); ?></small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="ticket-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="info-card">
+                                    <h6><i class="fas fa-info-circle me-2 text-primary"></i>Booking Status</h6>
+                                    <span class="status-badge status-<?php echo $booking['booking_status']; ?>">
+                                        <i class="fas fa-<?php echo $booking['booking_status'] === 'confirmed' ? 'check-circle' : 'clock'; ?> me-1"></i>
+                                        <?php echo ucfirst($booking['booking_status']); ?>
+                                    </span>
+                                    
+                                    <h6 class="mt-3"><i class="fas fa-credit-card me-2 text-primary"></i>Payment Method</h6>
+                                    <div class="mb-2">
+                                        <?php 
+                                        $paymentMethods = [
+                                            'counter' => '<i class="fas fa-money-bill-wave me-1"></i>Over the Counter',
+                                            'gcash' => '<i class="fas fa-mobile-alt me-1"></i>GCash',
+                                            'paymaya' => '<i class="fas fa-credit-card me-1"></i>PayMaya'
+                                        ];
+                                        echo $paymentMethods[$booking['payment_method']] ?? ucfirst($booking['payment_method']);
+                                        ?>
+                                    </div>
+                                    
+                                    <span class="payment-status payment-<?php echo str_replace('_', '-', $booking['payment_status']); ?>">
+                                        <?php 
+                                        $statusIcons = [
+                                            'verified' => 'check-circle',
+                                            'pending' => 'clock',
+                                            'awaiting_verification' => 'hourglass-half'
+                                        ];
+                                        $statusText = [
+                                            'verified' => 'Verified',
+                                            'pending' => 'Pending Payment',
+                                            'awaiting_verification' => 'Awaiting Verification'
+                                        ];
+                                        $icon = $statusIcons[$booking['payment_status']] ?? 'question-circle';
+                                        $text = $statusText[$booking['payment_status']] ?? ucfirst(str_replace('_', ' ', $booking['payment_status']));
+                                        ?>
+                                        <i class="fas fa-<?php echo $icon; ?> me-1"></i><?php echo $text; ?>
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <div class="info-card">
+                                    <h6><i class="fas fa-bus me-2 text-primary"></i>Bus Information</h6>
+                                    <div class="mb-2">
+                                        <strong><?php echo htmlspecialchars($booking['bus_type']); ?> Bus</strong>
+                                        <br><small class="text-muted">Plate: <?php echo htmlspecialchars($booking['plate_number']); ?></small>
+                                    </div>
+                                    
+                                    <div class="mb-2">
+                                        <strong>Driver:</strong> <?php echo htmlspecialchars($booking['driver_name']); ?>
+                                        <br><strong>Conductor:</strong> <?php echo htmlspecialchars($booking['conductor_name']); ?>
+                                    </div>
+                                    
+                                    <?php if ($booking['distance'] && $booking['estimated_duration']): ?>
+                                    <div class="small text-muted">
+                                        <i class="fas fa-road me-1"></i><?php echo $booking['distance']; ?> km • 
+                                        <i class="fas fa-clock me-1"></i><?php echo $booking['estimated_duration']; ?>
+                                    </div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+
+                <!-- Summary Section -->
+                <div class="summary-section">
+                    <h5 class="mb-4"><i class="fas fa-calculator me-2"></i>Booking Summary</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <strong><i class="fas fa-users me-2"></i>Total Passengers:</strong> <?php echo count($bookings); ?>
+                            </div>
+                            <div class="mb-3">
+                                <strong><i class="fas fa-chair me-2"></i>Selected Seats:</strong> 
+                                <?php 
+                                $seats = array_column($bookings, 'seat_number');
+                                sort($seats);
+                                echo implode(', ', $seats);
+                                ?>
+                            </div>
+                            <div class="mb-3">
+                                <strong><i class="fas fa-calendar-day me-2"></i>Travel Date:</strong> <?php echo date('F d, Y', strtotime($first_booking['booking_date'])); ?>
+                            </div>
+                            <div class="mb-3">
+                                <strong><i class="fas fa-route me-2"></i>Route:</strong> 
+                                <?php echo htmlspecialchars($first_booking['origin'] . ' → ' . $first_booking['destination']); ?>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <strong><i class="fas fa-money-bill-wave me-2"></i>Base Fare per ticket:</strong> ₱<?php echo number_format($base_fare, 2); ?>
+                            </div>
+                            <?php 
+                            $discounted_tickets = 0;
+                            foreach ($bookings as $booking) {
+                                if ($booking['discount_type'] !== 'regular') {
+                                    $discounted_tickets++;
+                                }
+                            }
+                            if ($discounted_tickets > 0): ?>
+                            <div class="mb-3">
+                                <strong><i class="fas fa-tag me-2"></i>Discounted Tickets:</strong> <?php echo $discounted_tickets; ?> 
+                                <span class="small text-muted">(20% off)</span>
+                            </div>
+                            <?php endif; ?>
+                            <div class="mb-3">
+                                <strong><i class="fas fa-receipt me-2"></i>Total Amount:</strong> 
+                                <span class="text-success fs-4">₱<?php echo number_format($total_fare, 2); ?></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- QR Code Section -->
+                <div class="qr-code-section">
+                    <h6><i class="fas fa-qrcode me-2"></i>Group Booking QR Code</h6>
+                    <div class="qr-placeholder bg-light border rounded p-4 d-inline-block">
+                        <i class="fas fa-qrcode fa-5x text-muted"></i>
+                        <div class="mt-2 small text-muted">Scan for quick verification</div>
+                        <div class="small text-muted fw-bold"><?php echo htmlspecialchars($ticket_group_id); ?></div>
+                    </div>
+                    <p class="mt-2 mb-0 small text-muted">Present this QR code during check-in for faster processing</p>
+                </div>
+
+                <!-- Important Instructions -->
+                <div class="instructions-box">
+                    <h6><i class="fas fa-info-circle me-2"></i>Important Instructions</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <ul class="mb-0">
+                                <li><strong>Arrival Time:</strong> Please arrive at the terminal at least 30 minutes before departure.</li>
+                                <li><strong>Valid ID:</strong> Each passenger must present a valid ID that matches the name on their ticket.</li>
+                                <li><strong>Group Booking:</strong> All passengers in this group booking should travel together.</li>
+                                <?php if ($first_booking['payment_method'] !== 'counter'): ?>
+                                <li><strong>Payment Verification:</strong> Ensure your payment has been verified before boarding. Check your booking status.</li>
+                                <?php else: ?>
+                                <li><strong>Payment:</strong> Pay the total amount (₱<?php echo number_format($total_fare, 2); ?>) at the counter using this receipt as reference.</li>
+                                <?php endif; ?>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <ul class="mb-0">
+                                <li><strong>Cancellation:</strong> Group bookings can be cancelled up to 24 hours before departure.</li>
+                                <li><strong>Contact:</strong> For any concerns, contact the terminal at (033) 337-8888.</li>
+                                <li><strong>Lost Receipt:</strong> Keep this receipt safe. Present the QR code if receipt is lost.</li>
+                                <li><strong>Changes:</strong> Seat changes are subject to availability and may incur additional charges.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- Action Buttons -->
+                <div class="text-center no-print">
+                    <button class="btn btn-primary btn-lg me-3" onclick="window.print()">
                         <i class="fas fa-print me-2"></i>Print Receipt
                     </button>
+                    <a href="../mybookings.php" class="btn btn-outline-secondary btn-lg me-3">
+                        <i class="fas fa-list me-2"></i>View All Bookings
+                    </a>
+                    <button class="btn btn-info btn-lg" onclick="downloadReceipt()">
+                        <i class="fas fa-download me-2"></i>Download PDF
+                    </button>
                 </div>
-                
-                <?php if (isset($_GET['debug'])): ?>
-                <!-- Debug Information -->
-                <div class="debug-info alert alert-info mt-4">
-                    <h5>Debug Information:</h5>
-                    <?php foreach($debug_messages as $message): ?>
-                        <p><?php echo htmlspecialchars($message); ?></p>
-                    <?php endforeach; ?>
-                    
-                    <h6>Booking Data:</h6>
-                    <pre><?php print_r($booking_data); ?></pre>
-                    
-                    <h6>Bus Data:</h6>
-                    <pre><?php print_r($bus_data); ?></pre>
-                    
-                    <h6>Schedule Data:</h6>
-                    <pre><?php print_r($schedule_data ?? 'Not found'); ?></pre>
+
+                <!-- Contact Information -->
+                <div class="text-center mt-5 pt-4 border-top">
+                    <h6 class="text-primary"><strong>Ceres Bus Terminal</strong></h6>
+                    <p class="mb-1 text-muted">Iloilo City Terminal • Phone: (033) 337-8888</p>
+                    <p class="mb-0 text-muted">Email: isatucommuters@ceresbus.com</p>
+                    <p class="small text-muted mt-2">Thank you for choosing Ceres Bus for ISAT-U Commuters!</p>
                 </div>
-                <?php endif; ?>
             </div>
         </div>
     </div>
-    
-    <!-- Footer -->
-    <footer class="footer mt-5">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <h5>Ceres Bus Ticket System for ISAT-U Commuters</h5>
-                    <p>Providing convenient Ceres bus transportation booking for ISAT-U students, faculty, and staff commuters.</p>
-                </div>
-                <div class="col-md-4 mb-3">
-                    <h5>Quick Links</h5>
-                    <ul class="list-unstyled">
-                        <li><a href="../routes.php" class="text-white">Routes</a></li>
-                        <li><a href="../schedule.php" class="text-white">Schedule</a></li>
-                        <li><a href="../booking.php" class="text-white">Book Ticket</a></li>
-                        <li><a href="../contact.php" class="text-white">Contact Us</a></li>
-                    </ul>
-                </div>
-                <div class="col-md-4 mb-3">
-                    <h5>Contact</h5>
-                    <address>
-                        <i class="fas fa-map-marker-alt me-2"></i> Ceres Terminal, Iloilo City<br>
-                        <i class="fas fa-phone me-2"></i> (033) 337-8888<br>
-                        <i class="fas fa-envelope me-2"></i> isatucommuters@ceresbus.com
-                    </address>
-                </div>
-            </div>
-            <hr class="bg-light">
-            <div class="text-center">
-                <p>&copy; <?php echo date('Y'); ?> Ceres Bus Terminal - ISAT-U Commuters Ticket System. All rights reserved.</p>
-            </div>
+
+    <!-- Success Message -->
+    <div class="container mt-4 no-print">
+        <div class="alert alert-success text-center">
+            <h5 class="alert-heading">
+                <i class="fas fa-check-circle me-2"></i>Group Booking Confirmed!
+            </h5>
+            <p class="mb-0">
+                Your group booking for <?php echo count($bookings); ?> passenger(s) has been successfully created. 
+                Please save this receipt and present it during check-in. Total fare: <strong>₱<?php echo number_format($total_fare, 2); ?></strong>
+            </p>
         </div>
-    </footer>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Replace the existing printReceipt function with this one
-        function printReceipt() {
-            // Set receipt title with booking reference
-            const originalTitle = document.title;
-            const bookingRef = document.querySelector('.booking-ref').textContent.trim().replace('Booking Reference: ', '');
-            document.title = "Ceres Bus Ticket - " + bookingRef;
+        // Function to download receipt as PDF (placeholder)
+        function downloadReceipt() {
+            // This would typically integrate with a PDF generation library
+            alert('PDF download feature will be implemented with a PDF generation library like jsPDF or server-side PDF generation.');
             
-            // Mobile-specific adjustments before printing
-            const receiptContainer = document.querySelector('.receipt-container');
-            const originalPadding = receiptContainer.style.padding;
-            
-            // Adjust for better mobile printing
-            if (window.innerWidth <= 768) {
-                // Apply mobile-friendly styles
-                receiptContainer.style.padding = '8px';
-                
-                // Adjust font size for mobile
-                const style = document.createElement('style');
-                style.id = 'print-mobile-styles';
-                style.innerHTML = `
-                    @media print {
-                        body {
-                            margin: 0;
-                            padding: 0;
-                            font-size: 11pt;
-                        }
-                        .receipt-container {
-                            box-shadow: none;
-                            padding: 5px;
-                            max-width: 100%;
-                        }
-                        .ticket-info, .passenger-info, .bus-details, .fare-details {
-                            padding: 8px;
-                        }
-                        .ticket-info .icon, .passenger-info .icon {
-                            width: 20px;
-                            font-size: 0.9rem;
-                        }
-                        .barcode {
-                            height: 50px;
-                        }
-                        .qr-code {
-                            height: 80px;
-                        }
-                        .receipt-title {
-                            font-size: 1.2rem;
-                        }
-                        h5 {
-                            font-size: 1rem;
-                        }
-                        p {
-                            margin-bottom: 0.4rem;
-                        }
-                        .divider {
-                            margin: 8px 0;
-                        }
-                        .col-md-6 {
-                            width: 100%;
-                            float: none;
-                            margin-bottom: 10px;
-                        }
-                        @page {
-                            size: auto;
-                            margin: 5mm;
-                        }
-                    }
-                `;
-                document.head.appendChild(style);
-            }
-            
-            // Execute browser print
+            // Alternative: Open print dialog which allows saving as PDF
             window.print();
-            
-            // Restore original settings after print dialog closes
-            setTimeout(function() {
-                document.title = originalTitle;
-                receiptContainer.style.padding = originalPadding;
-                
-                // Remove mobile-specific styles
-                const mobileStyles = document.getElementById('print-mobile-styles');
-                if (mobileStyles) {
-                    document.head.removeChild(mobileStyles);
-                }
-            }, 1000);
-            
-            return false;
         }
 
-        // Handle keyboard shortcut for printing (Ctrl+P)
-        document.addEventListener('keydown', function(e) {
-            if (e.ctrlKey && e.key === 'p') {
-                e.preventDefault();
-                printReceipt();
+        // Auto-print on load if requested
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('print') === 'true') {
+            setTimeout(() => {
+                window.print();
+            }, 1000);
+        }
+
+        // Enhanced print styling
+        window.addEventListener('beforeprint', function() {
+            document.body.style.background = 'white';
+        });
+
+        // Animate elements on load
+        document.addEventListener('DOMContentLoaded', function() {
+            const tickets = document.querySelectorAll('.passenger-ticket');
+            tickets.forEach((ticket, index) => {
+                setTimeout(() => {
+                    ticket.style.opacity = '0';
+                    ticket.style.transform = 'translateY(20px)';
+                    ticket.style.transition = 'all 0.5s ease';
+                    
+                    setTimeout(() => {
+                        ticket.style.opacity = '1';
+                        ticket.style.transform = 'translateY(0)';
+                    }, 100);
+                }, index * 150);
+            });
+        });
+
+        // Copy group ID to clipboard
+        function copyGroupId() {
+            const groupId = '<?php echo $ticket_group_id; ?>';
+            navigator.clipboard.writeText(groupId).then(function() {
+                // Show toast notification
+                const toast = document.createElement('div');
+                toast.className = 'alert alert-info position-fixed';
+                toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 250px;';
+                toast.innerHTML = '<i class="fas fa-copy me-2"></i>Group ID copied to clipboard!';
+                document.body.appendChild(toast);
+                
+                setTimeout(() => {
+                    toast.remove();
+                }, 3000);
+            });
+        }
+
+        // Add click handler to group ID
+        document.addEventListener('DOMContentLoaded', function() {
+            const groupIdElement = document.querySelector('.receipt-header h5');
+            if (groupIdElement) {
+                groupIdElement.style.cursor = 'pointer';
+                groupIdElement.title = 'Click to copy Group ID';
+                groupIdElement.addEventListener('click', copyGroupId);
             }
         });
+
+        // Refresh page to check payment status
+        function refreshPaymentStatus() {
+            location.reload();
+        }
+
+        // Auto-refresh every 30 seconds if there are pending payments
+        <?php 
+        $hasPendingPayments = false;
+        foreach ($bookings as $booking) {
+            if ($booking['payment_status'] === 'awaiting_verification') {
+                $hasPendingPayments = true;
+                break;
+            }
+        }
+        if ($hasPendingPayments): ?>
+        setInterval(refreshPaymentStatus, 30000);
+        
+        // Show notification about pending payments
+        document.addEventListener('DOMContentLoaded', function() {
+            const notification = document.createElement('div');
+            notification.className = 'alert alert-warning position-fixed';
+            notification.style.cssText = 'bottom: 20px; right: 20px; z-index: 9999; max-width: 350px;';
+            notification.innerHTML = `
+                <i class="fas fa-hourglass-half me-2"></i>
+                <strong>Payment Verification Pending</strong><br>
+                Your payment is being verified. This page will auto-refresh every 30 seconds.
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(notification);
+        });
+        <?php endif; ?>
+
+        // Enhanced animations and interactions
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add hover effects to passenger tickets
+            const passengerTickets = document.querySelectorAll('.passenger-ticket');
+            passengerTickets.forEach(ticket => {
+                ticket.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-5px)';
+                });
+                
+                ticket.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0)';
+                });
+            });
+
+            // Add click-to-expand functionality for ticket details
+            passengerTickets.forEach(ticket => {
+                const header = ticket.querySelector('.ticket-header');
+                const body = ticket.querySelector('.ticket-body');
+                
+                header.addEventListener('click', function() {
+                    body.style.transition = 'max-height 0.3s ease';
+                    if (body.style.maxHeight === '0px' || !body.style.maxHeight) {
+                        body.style.maxHeight = body.scrollHeight + 'px';
+                        header.style.cursor = 'pointer';
+                    } else {
+                        body.style.maxHeight = '0px';
+                    }
+                });
+            });
+
+            // Add print preview functionality
+            const printBtn = document.querySelector('button[onclick="window.print()"]');
+            if (printBtn) {
+                printBtn.addEventListener('mouseenter', function() {
+                    document.body.classList.add('print-preview');
+                });
+                
+                printBtn.addEventListener('mouseleave', function() {
+                    document.body.classList.remove('print-preview');
+                });
+            }
+        });
+
+        // Share receipt functionality
+        function shareReceipt() {
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Group Booking Receipt',
+                    text: `Group booking receipt for ${<?php echo count($bookings); ?>} passengers - Total: ₱${<?php echo number_format($total_fare, 2); ?>}`,
+                    url: window.location.href
+                });
+            } else {
+                // Fallback: copy URL to clipboard
+                navigator.clipboard.writeText(window.location.href).then(function() {
+                    alert('Receipt URL copied to clipboard!');
+                });
+            }
+        }
+
+        // Add email receipt functionality
+        function emailReceipt() {
+            const subject = encodeURIComponent('Group Booking Receipt - ' + '<?php echo $ticket_group_id; ?>');
+            const body = encodeURIComponent(`
+                Group Booking Receipt
+                
+                Group ID: <?php echo $ticket_group_id; ?>
+                Passengers: <?php echo count($bookings); ?>
+                Route: <?php echo $first_booking['origin'] . ' to ' . $first_booking['destination']; ?>
+                Date: <?php echo date('F d, Y', strtotime($first_booking['booking_date'])); ?>
+                Total Fare: ₱<?php echo number_format($total_fare, 2); ?>
+                
+                View full receipt: ${window.location.href}
+                
+                Thank you for choosing Ceres Bus!
+            `);
+            
+            window.location.href = `mailto:?subject=${subject}&body=${body}`;
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Ctrl+P for print
+            if (e.ctrlKey && e.key === 'p') {
+                e.preventDefault();
+                window.print();
+            }
+            
+            // Ctrl+S for download/save
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                downloadReceipt();
+            }
+        });
+
+        // Add loading states for buttons
+        function addLoadingState(button, originalText) {
+            button.disabled = true;
+            button.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading...`;
+            
+            setTimeout(() => {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }, 2000);
+        }
+
+        // Enhanced print functionality with loading state
+        const printButton = document.querySelector('button[onclick="window.print()"]');
+        if (printButton) {
+            printButton.addEventListener('click', function(e) {
+                e.preventDefault();
+                const originalText = this.innerHTML;
+                addLoadingState(this, originalText);
+                
+                setTimeout(() => {
+                    window.print();
+                }, 500);
+            });
+        }
+
+        // Performance optimization: lazy load images if any
+        if ('IntersectionObserver' in window) {
+            const imageObserver = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const img = entry.target;
+                        img.src = img.dataset.src;
+                        img.classList.remove('lazy');
+                        imageObserver.unobserve(img);
+                    }
+                });
+            });
+            
+            document.querySelectorAll('img[data-src]').forEach(img => {
+                imageObserver.observe(img);
+            });
+        }
     </script>
+
+    <!-- Additional CSS for enhanced interactions -->
+    <style>
+        .print-preview {
+            filter: grayscale(20%);
+        }
+        
+        .passenger-ticket {
+            cursor: pointer;
+        }
+        
+        .passenger-ticket .ticket-header:hover {
+            background: linear-gradient(135deg, #e9ecef, #dee2e6);
+        }
+        
+        .lazy {
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .lazy.loaded {
+            opacity: 1;
+        }
+        
+        /* Additional responsive improvements */
+        @media (max-width: 768px) {
+            .receipt-container {
+                margin: 10px;
+                border-radius: 10px;
+            }
+            
+            .receipt-header {
+                padding: 20px;
+            }
+            
+            .receipt-body {
+                padding: 20px;
+            }
+            
+            .passenger-ticket {
+                margin-bottom: 15px;
+            }
+            
+            .ticket-header {
+                padding: 15px;
+            }
+            
+            .ticket-body {
+                padding: 15px;
+            }
+            
+            .btn-lg {
+                padding: 8px 16px;
+                font-size: 0.9rem;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .seat-number-badge {
+                font-size: 1rem;
+                padding: 8px 15px;
+            }
+            
+            .receipt-header h2 {
+                font-size: 1.5rem;
+            }
+            
+            .receipt-header h5 {
+                font-size: 1rem;
+            }
+        }
+    </style>
 </body>
 </html>

@@ -102,7 +102,7 @@
     <div class="hero-section">
         <div class="container text-center">
             <div class="hero-content">
-                <h1>Easy Bus Travel for ISAT-U Community</h1>
+                <h1>Easy Bus Travel for ISAT-U Commuters</h1>
                 <p>Book your Ceres bus tickets online with our simple platform designed exclusively for ISAT-U students, faculty, and staff.</p>
                 <div class="auth-buttons">
                     <a href="user/registration.php" class="btn btn-warning btn-lg">Get Started</a>
