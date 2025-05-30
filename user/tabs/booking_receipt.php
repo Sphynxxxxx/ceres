@@ -10,7 +10,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 }
 
 // Database connection
-require_once "../../../backend/connections/config.php";
+require_once "../../backend/connections/config.php";
 
 $ticket_group_id = isset($_GET['ticket_group_id']) ? $_GET['ticket_group_id'] : '';
 

@@ -38,6 +38,7 @@ $selected_schedule_id = isset($_GET['schedule_id']) ? intval($_GET['schedule_id'
 $booking_success = false;
 $booking_error = '';
 $booking_references = [];
+$transaction_started = false;
 
 // Process booking form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
@@ -46,13 +47,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
     $payment_method = isset($_POST['payment_method']) ? $_POST['payment_method'] : '';
     $passengers = isset($_POST['passengers']) ? $_POST['passengers'] : [];
     
-    // Validation
+    // Enhanced validation
     $errors = [];
     if ($bus_id <= 0) {
         $errors[] = "Please select a valid bus";
     }
     if (empty($booking_date)) {
         $errors[] = "Please select a travel date";
+    } else {
+        // Validate date format and ensure it's not 0000-00-00
+        $date = DateTime::createFromFormat('Y-m-d', $booking_date);
+        if (!$date || $date->format('Y-m-d') !== $booking_date || $booking_date === '0000-00-00') {
+            $errors[] = "Invalid date format";
+        } elseif ($date < new DateTime('today')) {
+            $errors[] = "Booking date cannot be in the past";
+        }
     }
     if (empty($payment_method)) {
         $errors[] = "Please select a payment method";
@@ -65,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
     foreach ($passengers as $index => $passenger) {
         $passengerNum = $index + 1;
         
-        if (empty($passenger['name'])) {
+        if (empty($passenger['name']) || trim($passenger['name']) === '') {
             $errors[] = "Please enter name for passenger #{$passengerNum}";
         }
         if (empty($passenger['seat_number']) || intval($passenger['seat_number']) <= 0) {
@@ -91,26 +100,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
         $errors[] = "Please upload payment proof for " . strtoupper($payment_method);
     }
     
+    // Process booking if no errors
     if (empty($errors)) {
         try {
-            // First, make sure the necessary columns exist
-            try {
-                // Add discount related columns if they don't exist
-                $alter_discount_type = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discount_type VARCHAR(20) DEFAULT 'regular'";
-                $conn->query($alter_discount_type);
-                
-                $alter_discount_id = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discount_id_proof VARCHAR(255) DEFAULT NULL";
-                $conn->query($alter_discount_id);
-                
-                $alter_discount_verified = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discount_verified TINYINT(1) DEFAULT 0";
-                $conn->query($alter_discount_verified);
-                
-                $alter_passenger_name = "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS passenger_name VARCHAR(255) DEFAULT NULL";
-                $conn->query($alter_passenger_name);
-                
-            } catch (Exception $e) {
-                error_log("Error adding columns: " . $e->getMessage());
-            }
+            // Start transaction
+            $conn->begin_transaction();
+            $transaction_started = true;
             
             // Process payment proof upload if applicable
             if ($payment_method === 'gcash' || $payment_method === 'paymaya') {
@@ -124,12 +119,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
             // Check if any seats are already booked
             $seat_numbers = array_column($passengers, 'seat_number');
             $seat_placeholders = str_repeat('?,', count($seat_numbers) - 1) . '?';
-            $check_query = "SELECT seat_number FROM bookings WHERE bus_id = ? AND booking_date = ? AND seat_number IN ($seat_placeholders) AND booking_status = 'confirmed'";
+            $check_query = "SELECT seat_number FROM bookings 
+                        WHERE bus_id = ? 
+                        AND booking_date = ? 
+                        AND seat_number IN ($seat_placeholders) 
+                        AND booking_status = 'confirmed'";
+            
             $check_stmt = $conn->prepare($check_query);
+            if (!$check_stmt) {
+                throw new Exception("Database prepare error: " . $conn->error);
+            }
+            
             $params = array_merge([$bus_id, $booking_date], $seat_numbers);
             $types = 'is' . str_repeat('i', count($seat_numbers));
             $check_stmt->bind_param($types, ...$params);
-            $check_stmt->execute();
+            
+            if (!$check_stmt->execute()) {
+                throw new Exception("Database execution error: " . $check_stmt->error);
+            }
+            
             $check_result = $check_stmt->get_result();
             
             if ($check_result->num_rows > 0) {
@@ -137,15 +145,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
                 while ($row = $check_result->fetch_assoc()) {
                     $booked_seats[] = $row['seat_number'];
                 }
-                $booking_error = "The following seats are already booked: " . implode(', ', $booked_seats) . ". Please select different seats.";
-            } else {
-                // Begin a transaction to ensure all operations succeed or fail together
-                $conn->begin_transaction();
-                
-                // Get trip number for this bus
-                $trip_number = null;
-                $trip_query = "SELECT trip_number FROM schedules WHERE bus_id = ? LIMIT 1";
-                $trip_stmt = $conn->prepare($trip_query);
+                throw new Exception("The following seats are already booked: " . implode(', ', $booked_seats) . ". Please select different seats.");
+            }
+            
+            // Get trip number for this bus
+            $trip_number = null;
+            $trip_query = "SELECT trip_number FROM schedules WHERE bus_id = ? AND status = 'active' LIMIT 1";
+            $trip_stmt = $conn->prepare($trip_query);
+            if ($trip_stmt) {
                 $trip_stmt->bind_param("i", $bus_id);
                 $trip_stmt->execute();
                 $trip_result = $trip_stmt->get_result();
@@ -153,109 +160,152 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
                     $trip_data = $trip_result->fetch_assoc();
                     $trip_number = $trip_data['trip_number'];
                 }
-                
-                // Set payment status based on payment method
-                $payment_status = ($payment_method === 'counter') ? 'pending' : 
-                                 (($payment_method === 'gcash' || $payment_method === 'paymaya') ? 'awaiting_verification' : 'pending');
-                
-                // Set payment proof status
-                $payment_proof_status = ($payment_method === 'counter') ? 'not_required' : 
-                                      ($payment_proof_path ? 'uploaded' : 'pending');
-                
-                // Get current timestamp for payment proof upload
-                $current_timestamp = date('Y-m-d H:i:s');
-                
-                // Process each passenger booking
-                foreach ($passengers as $index => $passenger) {
-                    // Process discount ID upload if applicable
-                    $discount_id_path = null;
-                    if ($passenger['discount_type'] !== 'regular') {
-                        $discount_id_path = processDiscountIDUpload($passenger['discount_type'], $index);
-                        
-                        if (!$discount_id_path) {
-                            throw new Exception("Failed to upload discount ID proof for passenger: " . $passenger['name']);
-                        }
+            }
+            
+            // Set payment status based on payment method
+            $payment_status = ($payment_method === 'counter') ? 'not_required' : 
+                            (($payment_method === 'gcash' || $payment_method === 'paymaya') ? 'awaiting_verification' : 'pending');
+            
+            // Set payment proof status
+            $payment_proof_status = ($payment_method === 'counter') ? 'not_required' : 
+                                ($payment_proof_path ? 'uploaded' : 'pending');
+            
+            // Get current timestamp for payment proof upload
+            $current_timestamp = date('Y-m-d H:i:s');
+            
+            // Process each passenger booking
+            $booking_references = [];
+            
+            foreach ($passengers as $index => $passenger) {
+                // Process discount ID upload if applicable
+                $discount_id_path = null;
+                if ($passenger['discount_type'] !== 'regular') {
+                    $discount_id_path = processDiscountIDUpload($passenger['discount_type'], $index);
+                    
+                    if (!$discount_id_path) {
+                        throw new Exception("Failed to upload discount ID proof for passenger: " . $passenger['name']);
                     }
-                    
-                    // Generate booking reference
-                    $booking_reference = 'BK-' . date('Ymd') . '-' . uniqid();
-                    
-                    // Insert booking with payment information, proof, and discount details
-                    $insert_query = "INSERT INTO bookings (bus_id, user_id, passenger_name, seat_number, booking_date, booking_status, 
-                                    created_at, booking_reference, trip_number, payment_method, payment_status, 
-                                    payment_proof, payment_proof_status, payment_proof_timestamp,
-                                    discount_type, discount_id_proof, discount_verified) 
-                                    VALUES (?, ?, ?, ?, ?, 'confirmed', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
-
-                    $insert_stmt = $conn->prepare($insert_query);
-                    $insert_stmt->bind_param("iississsssssss", $bus_id, $user_id, $passenger['name'], 
-                                            $passenger['seat_number'], $booking_date, $booking_reference, 
-                                            $trip_number, $payment_method, $payment_status, 
-                                            $payment_proof_path, $payment_proof_status, $current_timestamp,
-                                            $passenger['discount_type'], $discount_id_path);
-                    
-                    if (!$insert_stmt->execute()) {
-                        throw new Exception("Error creating booking for passenger: " . $passenger['name']);
-                    }
-                    
-                    $booking_references[] = $booking_reference;
                 }
                 
-                // Commit the transaction
-                $conn->commit();
+                // Generate unique booking reference
+                $booking_reference = 'BK-' . date('Ymd') . '-' . uniqid();
                 
-                // Set success flag
-                $booking_success = true;
+                // Enhanced insert query with all required fields
+                $insert_query = "INSERT INTO bookings (
+                    bus_id, user_id, passenger_name, seat_number, booking_date, 
+                    booking_status, created_at, booking_reference, trip_number, 
+                    payment_method, payment_status, payment_proof, payment_proof_status, 
+                    payment_proof_timestamp, discount_type, discount_id_proof, discount_verified
+                ) VALUES (?, ?, ?, ?, ?, 'confirmed', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
+
+                $insert_stmt = $conn->prepare($insert_query);
+                if (!$insert_stmt) {
+                    throw new Exception("Database prepare error for booking insert: " . $conn->error);
+                }
                 
-                // Redirect to the booking receipt page with all booking IDs
-                $booking_refs = implode(',', $booking_references);
-                header("Location: auth/booking_receipt.php?booking_refs=" . urlencode($booking_refs));
-                exit;
+                // Ensure passenger name is properly trimmed
+                $passenger_name = trim($passenger['name']);
+                
+                $insert_stmt->bind_param("iississsssssss", 
+                    $bus_id, 
+                    $user_id, 
+                    $passenger_name,
+                    $passenger['seat_number'], 
+                    $booking_date, 
+                    $booking_reference, 
+                    $trip_number, 
+                    $payment_method, 
+                    $payment_status, 
+                    $payment_proof_path, 
+                    $payment_proof_status, 
+                    $current_timestamp,
+                    $passenger['discount_type'], 
+                    $discount_id_path
+                );
+                
+                if (!$insert_stmt->execute()) {
+                    throw new Exception("Error creating booking for passenger: " . $passenger['name'] . ". Database error: " . $insert_stmt->error);
+                }
+                
+                $booking_references[] = $booking_reference;
+                
+                // Log successful booking
+                error_log("Successfully created booking: " . $booking_reference . " for passenger: " . $passenger_name);
             }
+            
+            // Commit the transaction
+            $conn->commit();
+            $transaction_started = false;
+            
+            // Set success flag
+            $booking_success = true;
+            
+            // Log successful completion
+            error_log("Booking process completed successfully. References: " . implode(', ', $booking_references));
+            
+            // Redirect to booking receipt page with booking references
+            $booking_refs = implode(',', $booking_references);
+            $redirect_url = "booking_receipt.php?booking_refs=" . urlencode($booking_refs);
+            
+            // Clear any output buffer and redirect
+            if (ob_get_level()) {
+                ob_end_clean();
+            }
+            
+            header("Location: " . $redirect_url);
+            exit();
+            
         } catch (Exception $e) {
             // Rollback in case of any exception
-            if ($conn->inTransaction()) {
+            if (isset($transaction_started) && $transaction_started) {
                 $conn->rollback();
             }
-            $booking_error = "Database error: " . $e->getMessage();
+            
+            // Log the error
+            error_log("Booking error: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
+            
+            $booking_error = "Booking failed: " . $e->getMessage();
         }
     } else {
         $booking_error = implode(", ", $errors);
+        error_log("Booking validation errors: " . $booking_error);
     }
 }
 
-/**
- * Process payment proof image upload
- * 
- * @param string $payment_method The payment method (gcash or paymaya)
- * @return string|null The path to the uploaded image or null on failure
- */
+// Enhanced processPaymentProofUpload function
 function processPaymentProofUpload($payment_method) {
     try {
         // Check if file was uploaded
         if (!isset($_FILES['payment_proof']) || 
             $_FILES['payment_proof']['error'] !== UPLOAD_ERR_OK) {
+            error_log("Payment proof file upload error: " . ($_FILES['payment_proof']['error'] ?? 'No file'));
             return null;
         }
         
         $file = $_FILES['payment_proof'];
         
         // Create upload directory if it doesn't exist
-        $upload_dir = __DIR__ . '/../../uploads/payment_proofs/';
+        $upload_dir = __DIR__ . '/uploads/payment_proofs/';
         
         if (!file_exists($upload_dir)) {
-            mkdir($upload_dir, 0755, true);
+            if (!mkdir($upload_dir, 0755, true)) {
+                error_log("Failed to create upload directory: " . $upload_dir);
+                return null;
+            }
         }
         
         // Validate file type
         $file_info = getimagesize($file['tmp_name']);
         if ($file_info === false || 
             !in_array($file_info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF])) {
+            error_log("Invalid file type for payment proof");
             return null;
         }
         
         // Validate file size (max 5MB)
         if ($file['size'] > 5 * 1024 * 1024) {
+            error_log("File size too large: " . $file['size']);
             return null;
         }
         
@@ -267,7 +317,11 @@ function processPaymentProofUpload($payment_method) {
         // Move the uploaded file
         if (move_uploaded_file($file['tmp_name'], $upload_path)) {
             // Return the relative path to store in database
-            return 'uploads/payment_proofs/' . $unique_filename;
+            $relative_path = 'uploads/payment_proofs/' . $unique_filename;
+            error_log("Payment proof uploaded successfully: " . $relative_path);
+            return $relative_path;
+        } else {
+            error_log("Failed to move uploaded file to: " . $upload_path);
         }
         
         return null;
@@ -277,13 +331,7 @@ function processPaymentProofUpload($payment_method) {
     }
 }
 
-/**
- * Process discount ID image upload
- * 
- * @param string $discount_type The discount type (student, senior, pwd)
- * @param int $passenger_index The passenger index for unique filenames
- * @return string|null The path to the uploaded image or null on failure
- */
+// Enhanced processDiscountIDUpload function
 function processDiscountIDUpload($discount_type, $passenger_index) {
     try {
         $file_key = 'discount_id_proof_' . $passenger_index;
@@ -298,23 +346,26 @@ function processDiscountIDUpload($discount_type, $passenger_index) {
         $file = $_FILES[$file_key];
         
         // Create upload directory if it doesn't exist
-        $upload_dir = __DIR__ . '/../../uploads/discount_ids/';
+        $upload_dir = __DIR__ . '/uploads/discount_ids/';
         
         if (!file_exists($upload_dir)) {
-            mkdir($upload_dir, 0755, true);
+            if (!mkdir($upload_dir, 0755, true)) {
+                error_log("Failed to create discount ID upload directory: " . $upload_dir);
+                return null;
+            }
         }
         
         // Validate file type
         $file_info = getimagesize($file['tmp_name']);
         if ($file_info === false || 
             !in_array($file_info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF])) {
-            error_log("Invalid file type for passenger {$passenger_index}");
+            error_log("Invalid file type for discount ID for passenger {$passenger_index}");
             return null;
         }
         
         // Validate file size (max 5MB)
         if ($file['size'] > 5 * 1024 * 1024) {
-            error_log("File too large for passenger {$passenger_index}");
+            error_log("File too large for discount ID for passenger {$passenger_index}");
             return null;
         }
         
@@ -326,7 +377,11 @@ function processDiscountIDUpload($discount_type, $passenger_index) {
         // Move the uploaded file
         if (move_uploaded_file($file['tmp_name'], $upload_path)) {
             // Return the relative path to store in database
-            return 'uploads/discount_ids/' . $unique_filename;
+            $relative_path = 'uploads/discount_ids/' . $unique_filename;
+            error_log("Discount ID uploaded successfully: " . $relative_path);
+            return $relative_path;
+        } else {
+            error_log("Failed to move discount ID file to: " . $upload_path);
         }
         
         return null;
@@ -546,7 +601,7 @@ if ($current_bus_id > 0) {
             font-size: 0.9rem;
             font-weight: bold;
             color: white;
-            transition: all 0.3s;
+            transition: all 0.3s ease;
             margin: 5px;
             position: relative;
             border: 2px solid transparent;
@@ -566,9 +621,10 @@ if ($current_bus_id > 0) {
         }
         
         .seat.available:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transform: translateY(-3px) scale(1.05);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
             border-color: #fff;
+            z-index: 5;
         }
         
         .seat.booked {
@@ -577,12 +633,36 @@ if ($current_bus_id > 0) {
             opacity: 0.8;
         }
         
+        .seat.booked::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: repeating-linear-gradient(
+                45deg,
+                rgba(0, 0, 0, 0.1),
+                rgba(0, 0, 0, 0.1) 5px,
+                rgba(0, 0, 0, 0.2) 5px,
+                rgba(0, 0, 0, 0.2) 10px
+            );
+            border-radius: 5px;
+        }
+        
         .seat.selected {
             background-color: #007bff;
             transform: scale(1.1);
-            box-shadow: 0 0 10px rgba(0,123,255,0.6);
-            z-index: 2;
+            box-shadow: 0 0 15px rgba(0,123,255,0.6);
+            z-index: 10;
             border-color: #fff;
+            animation: pulseSelected 2s infinite;
+        }
+        
+        @keyframes pulseSelected {
+            0% { box-shadow: 0 0 15px rgba(0,123,255,0.6); }
+            50% { box-shadow: 0 0 25px rgba(0,123,255,0.8); }
+            100% { box-shadow: 0 0 15px rgba(0,123,255,0.6); }
         }
         
         .passenger-card {
@@ -618,22 +698,50 @@ if ($current_bus_id > 0) {
         }
         
         .discount-option {
-            padding: 10px;
-            margin: 5px 0;
+            padding: 15px;
+            margin: 8px 0;
             border: 2px solid #e9ecef;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: all 0.3s ease;
+            background-color: #fff;
+            position: relative;
         }
         
         .discount-option:hover {
             border-color: #007bff;
             background-color: #f8f9fa;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
         
         .discount-option.selected {
             border-color: #007bff;
             background-color: #e7f1ff;
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+        }
+        
+        .discount-option .form-check {
+            margin-bottom: 0;
+            pointer-events: none; /* Prevent the form-check from interfering with click events */
+        }
+        
+        .discount-option .form-check-input {
+            pointer-events: auto; /* Re-enable pointer events for the radio button itself */
+        }
+        
+        .discount-option .form-check-label {
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 0;
+        }
+        
+        .discount-option .form-check-input:checked + .form-check-label {
+            color: #007bff;
+        }
+        
+        .discount-option .form-check-input:checked + .form-check-label strong {
+            color: #0056b3;
         }
         
         .fare-display {
@@ -1065,8 +1173,12 @@ if ($current_bus_id > 0) {
                                         
                                         <div class="alert alert-info mt-3">
                                             <i class="fas fa-info-circle me-2"></i>
-                                            <strong>Green seats</strong> are available, <strong>red seats</strong> are booked, 
-                                            and <strong>blue seats</strong> are your selections. Click on available seats to assign them to passengers.
+                                            <strong>Seat Selection Guide:</strong><br>
+                                            • <span class="badge bg-success me-1">Green seats</span> are available for booking<br>
+                                            • <span class="badge bg-danger me-1">Red seats</span> are already booked<br>
+                                            • <span class="badge bg-primary me-1">Blue seats</span> are your current selections<br>
+                                            • Click on any available seat or use the <i class="fas fa-chair"></i> button next to each passenger<br>
+                                            • For multiple passengers, you can choose who gets which seat
                                         </div>
                                     </div>
                                 </div>
@@ -1276,6 +1388,7 @@ if ($current_bus_id > 0) {
                                         <i class="fas fa-ticket-alt me-2"></i>Confirm Booking
                                     </button>
                                 </div>
+
                             </form>
                         </div>
                     </div>
@@ -1301,7 +1414,34 @@ if ($current_bus_id > 0) {
             
             // Setup event listeners
             setupEventListeners();
+            
+            // Show helpful initial instruction
+            showInitialInstruction();
         });
+
+        function showInitialInstruction() {
+            setTimeout(() => {
+                const firstNameInput = document.querySelector('.passenger-name');
+                if (firstNameInput && !firstNameInput.value.trim()) {
+                    // Create a subtle hint
+                    const hint = document.createElement('div');
+                    hint.className = 'alert alert-info mt-2';
+                    hint.innerHTML = `
+                        <i class="fas fa-lightbulb me-2"></i>
+                        <strong>Tip:</strong> Enter the passenger's full name above, and the seat selection will appear automatically!
+                    `;
+                    
+                    firstNameInput.closest('.mb-3').appendChild(hint);
+                    
+                    // Remove hint when they start typing
+                    firstNameInput.addEventListener('input', function() {
+                        if (hint.parentNode) {
+                            hint.remove();
+                        }
+                    }, { once: true });
+                }
+            }, 1000);
+        }
 
         function setupEventListeners() {
             // Bus selection
@@ -1360,6 +1500,12 @@ if ($current_bus_id > 0) {
             // Update fare calculations
             updateFareCalculations();
             
+            // Check if any passenger already has a name and show seat map
+            const hasNamedPassenger = passengers.some(p => p.name && p.name.trim());
+            if (hasNamedPassenger) {
+                document.getElementById('seat-map-card').style.display = 'block';
+            }
+            
             // Scroll to passenger selection
             document.getElementById('passenger-selection').scrollIntoView({ behavior: 'smooth' });
         }
@@ -1382,11 +1528,15 @@ if ($current_bus_id > 0) {
             updatePassengersSummary();
             updateFareCalculations();
             
-            // Show seat map if bus is selected
-            if (selectedBusData) {
-                document.getElementById('seat-map-card').style.display = 'block';
-                updateSeatMapInstructions();
-            }
+            // Focus on the name input of the newly added passenger
+            setTimeout(() => {
+                const nameInput = passengerCard.querySelector('.passenger-name');
+                if (nameInput) {
+                    nameInput.focus();
+                }
+            }, 100);
+            
+            // Note: Seat map will show automatically when they enter their name
         }
 
         function createPassengerCard(passengerData) {
@@ -1410,14 +1560,19 @@ if ($current_bus_id > 0) {
                             <label class="form-label">Passenger Name*</label>
                             <input type="text" class="form-control passenger-name" 
                                    placeholder="Enter full name" required
-                                   onchange="updatePassengerName(${passengerData.id}, this.value)">
+                                   oninput="updatePassengerName(${passengerData.id}, this.value)">
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="mb-3">
                             <label class="form-label">Selected Seat</label>
-                            <div class="form-control bg-light seat-display" id="seat-display-${passengerData.id}">
-                                Not selected
+                            <div class="d-flex gap-2">
+                                <div class="form-control bg-light seat-display flex-grow-1" id="seat-display-${passengerData.id}">
+                                    Not selected
+                                </div>
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="openSeatSelector(${passengerData.id})" title="Choose Seat">
+                                    <i class="fas fa-chair"></i>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1427,7 +1582,7 @@ if ($current_bus_id > 0) {
                     <label class="form-label fw-bold">Discount Type</label>
                     <div class="row">
                         <div class="col-md-6">
-                            <div class="discount-option" data-discount="regular" onclick="selectDiscount(${passengerData.id}, 'regular')">
+                            <div class="discount-option selected" data-discount="regular">
                                 <div class="form-check">
                                     <input class="form-check-input" type="radio" name="discount_${passengerData.id}" value="regular" checked>
                                     <label class="form-check-label">
@@ -1438,7 +1593,7 @@ if ($current_bus_id > 0) {
                             </div>
                         </div>
                         <div class="col-md-6">
-                            <div class="discount-option" data-discount="student" onclick="selectDiscount(${passengerData.id}, 'student')">
+                            <div class="discount-option" data-discount="student">
                                 <div class="form-check">
                                     <input class="form-check-input" type="radio" name="discount_${passengerData.id}" value="student">
                                     <label class="form-check-label">
@@ -1449,7 +1604,7 @@ if ($current_bus_id > 0) {
                             </div>
                         </div>
                         <div class="col-md-6">
-                            <div class="discount-option" data-discount="senior" onclick="selectDiscount(${passengerData.id}, 'senior')">
+                            <div class="discount-option" data-discount="senior">
                                 <div class="form-check">
                                     <input class="form-check-input" type="radio" name="discount_${passengerData.id}" value="senior">
                                     <label class="form-check-label">
@@ -1460,7 +1615,7 @@ if ($current_bus_id > 0) {
                             </div>
                         </div>
                         <div class="col-md-6">
-                            <div class="discount-option" data-discount="pwd" onclick="selectDiscount(${passengerData.id}, 'pwd')">
+                            <div class="discount-option" data-discount="pwd">
                                 <div class="form-check">
                                     <input class="form-check-input" type="radio" name="discount_${passengerData.id}" value="pwd">
                                     <label class="form-check-label">
@@ -1508,6 +1663,20 @@ if ($current_bus_id > 0) {
                 </div>
             `;
             
+            // Add event listeners for discount options after creating the card
+            setTimeout(() => {
+                const discountOptions = card.querySelectorAll('.discount-option');
+                discountOptions.forEach(option => {
+                    option.addEventListener('click', function(e) {
+                        // Prevent event if clicked directly on radio button (let default behavior handle it)
+                        if (e.target.type === 'radio') return;
+                        
+                        const discountType = this.dataset.discount;
+                        selectDiscount(passengerData.id, discountType);
+                    });
+                });
+            }, 0);
+            
             return card;
         }
 
@@ -1543,7 +1712,67 @@ if ($current_bus_id > 0) {
             if (passenger) {
                 passenger.name = name;
                 updatePassengersSummary();
+                
+                // Show seat map automatically when passenger name is entered
+                if (name.trim() && selectedBusData) {
+                    const seatMapCard = document.getElementById('seat-map-card');
+                    if (seatMapCard.style.display === 'none') {
+                        seatMapCard.style.display = 'block';
+                        
+                        // Smooth scroll to seat map with a slight delay
+                        setTimeout(() => {
+                            seatMapCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }, 300);
+                        
+                        // Show helpful instruction
+                        showAutoSeatSelectionInstruction(name.trim());
+                    }
+                }
             }
+        }
+
+        function showAutoSeatSelectionInstruction(passengerName) {
+            // Remove any existing auto instruction
+            const existingInstruction = document.querySelector('.auto-seat-instruction');
+            if (existingInstruction) {
+                existingInstruction.remove();
+            }
+            
+            // Create instruction
+            const instructionHTML = `
+                <div class="alert alert-success auto-seat-instruction" role="alert">
+                    <div class="d-flex align-items-center">
+                        <div class="me-3">
+                            <i class="fas fa-magic fa-2x text-success"></i>
+                        </div>
+                        <div>
+                            <h6 class="alert-heading mb-1">Great! Now select a seat for ${passengerName}</h6>
+                            <p class="mb-0">Click on any <span class="badge bg-success">available seat</span> below, or use the 
+                            <button class="btn btn-sm btn-outline-primary" disabled><i class="fas fa-chair"></i></button> 
+                            button next to the passenger name to choose a seat.</p>
+                        </div>
+                        <button type="button" class="btn-close" aria-label="Close" onclick="this.parentElement.parentElement.remove()"></button>
+                    </div>
+                </div>
+            `;
+            
+            // Insert before seat map container
+            const seatMapContainer = document.querySelector('.seat-map-container');
+            seatMapContainer.insertAdjacentHTML('beforebegin', instructionHTML);
+            
+            // Auto-remove instruction after 8 seconds
+            setTimeout(() => {
+                const instruction = document.querySelector('.auto-seat-instruction');
+                if (instruction) {
+                    instruction.style.opacity = '0';
+                    instruction.style.transition = 'opacity 0.5s ease';
+                    setTimeout(() => {
+                        if (instruction.parentNode) {
+                            instruction.remove();
+                        }
+                    }, 500);
+                }
+            }, 8000);
         }
 
         function selectDiscount(passengerId, discountType) {
@@ -1552,20 +1781,46 @@ if ($current_bus_id > 0) {
             
             passenger.discountType = discountType;
             
-            // Update UI
+            // Update UI - remove selection from all options for this passenger
             const card = document.querySelector(`[data-passenger-id="${passengerId}"]`);
             card.querySelectorAll('.discount-option').forEach(option => {
                 option.classList.remove('selected');
             });
-            card.querySelector(`[data-discount="${discountType}"]`).classList.add('selected');
+            
+            // Select the clicked option
+            const selectedOption = card.querySelector(`[data-discount="${discountType}"]`);
+            selectedOption.classList.add('selected');
+            
+            // Update the radio button
+            const radioButton = selectedOption.querySelector('input[type="radio"]');
+            if (radioButton) {
+                radioButton.checked = true;
+            }
             
             // Show/hide ID upload section
             const idUploadSection = document.getElementById(`id-upload-${passengerId}`);
             if (discountType !== 'regular') {
                 idUploadSection.style.display = 'block';
+                
+                // Smooth reveal animation
+                idUploadSection.style.opacity = '0';
+                idUploadSection.style.transform = 'translateY(-10px)';
+                setTimeout(() => {
+                    idUploadSection.style.transition = 'all 0.3s ease';
+                    idUploadSection.style.opacity = '1';
+                    idUploadSection.style.transform = 'translateY(0)';
+                }, 10);
             } else {
                 idUploadSection.style.display = 'none';
                 passenger.discountIdFile = null;
+                
+                // Clear file input
+                const fileInput = document.getElementById(`discount_id_proof_${passengerId}`);
+                if (fileInput) fileInput.value = '';
+                
+                // Hide preview
+                const preview = document.getElementById(`id-preview-${passengerId}`);
+                if (preview) preview.style.display = 'none';
             }
             
             updateFareCalculations();
@@ -1711,10 +1966,30 @@ if ($current_bus_id > 0) {
             seat.textContent = seatNumber;
             seat.dataset.seatNumber = seatNumber;
             
+            // Add tooltip
+            seat.setAttribute('title', `Seat ${seatNumber}`);
+            seat.setAttribute('data-bs-toggle', 'tooltip');
+            seat.setAttribute('data-bs-placement', 'top');
+            
             updateSeatStatus(seat, seatNumber);
             
             seat.addEventListener('click', function() {
                 handleSeatClick(seatNumber);
+            });
+            
+            // Add hover effect for available seats
+            seat.addEventListener('mouseenter', function() {
+                if (this.classList.contains('available')) {
+                    this.style.transform = 'translateY(-2px) scale(1.05)';
+                    this.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3)';
+                }
+            });
+            
+            seat.addEventListener('mouseleave', function() {
+                if (this.classList.contains('available')) {
+                    this.style.transform = '';
+                    this.style.boxShadow = '';
+                }
             });
             
             return seat;
@@ -1750,24 +2025,203 @@ if ($current_bus_id > 0) {
                     }
                 });
             } else {
+                // Select seat
                 // Check if we can select more seats
                 if (selectedSeats.length >= passengers.length) {
                     alert('You have already selected seats for all passengers. Remove a seat selection first or add more passengers.');
                     return;
                 }
                 
-                // Select seat for next passenger without seat
+                // Find passenger without seat or show selection modal
                 const passengerWithoutSeat = passengers.find(p => !p.seatNumber);
                 if (passengerWithoutSeat) {
-                    selectedSeats.push(seatNumber);
-                    passengerWithoutSeat.seatNumber = seatNumber;
-                    document.getElementById(`seat-display-${passengerWithoutSeat.id}`).textContent = `Seat ${seatNumber}`;
+                    assignSeatToPassenger(seatNumber, passengerWithoutSeat.id);
+                } else if (passengers.length === 1) {
+                    // For single passenger, directly assign
+                    assignSeatToPassenger(seatNumber, passengers[0].id);
+                } else {
+                    // Multiple passengers - show selection modal
+                    showPassengerSelectionModal(seatNumber);
                 }
             }
             
             updateSeatMap();
             updatePassengersSummary();
             checkBookingReadiness();
+        }
+
+        function assignSeatToPassenger(seatNumber, passengerId) {
+            // Remove any existing seat assignment for this passenger
+            const passenger = passengers.find(p => p.id === passengerId);
+            if (passenger && passenger.seatNumber) {
+                selectedSeats = selectedSeats.filter(seat => seat !== passenger.seatNumber);
+            }
+            
+            // Assign new seat
+            selectedSeats.push(seatNumber);
+            passenger.seatNumber = seatNumber;
+            document.getElementById(`seat-display-${passengerId}`).textContent = `Seat ${seatNumber}`;
+            
+            // Highlight the passenger card temporarily
+            const passengerCard = document.querySelector(`[data-passenger-id="${passengerId}"]`);
+            if (passengerCard) {
+                passengerCard.style.boxShadow = '0 0 15px rgba(40, 167, 69, 0.5)';
+                setTimeout(() => {
+                    passengerCard.style.boxShadow = '';
+                }, 2000);
+            }
+        }
+
+        function showPassengerSelectionModal(seatNumber) {
+            const availablePassengers = passengers.filter(p => !p.seatNumber);
+            
+            if (availablePassengers.length === 0) {
+                alert('All passengers already have seats assigned. Please unselect a seat first to reassign.');
+                return;
+            }
+            
+            // Create modal HTML
+            const modalHTML = `
+                <div class="modal fade" id="seatSelectionModal" tabindex="-1" aria-labelledby="seatSelectionModalLabel" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="seatSelectionModalLabel">
+                                    <i class="fas fa-chair me-2"></i>Assign Seat ${seatNumber}
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>Which passenger should be assigned to Seat ${seatNumber}?</p>
+                                <div class="passenger-selection-list">
+                                    ${availablePassengers.map(passenger => `
+                                        <div class="passenger-option p-3 border rounded mb-2 cursor-pointer" 
+                                             onclick="selectPassengerForSeat(${seatNumber}, ${passenger.id})" 
+                                             style="cursor: pointer; transition: all 0.3s;">
+                                            <div class="d-flex align-items-center">
+                                                <div class="me-3">
+                                                    <i class="fas fa-user-circle fa-2x text-primary"></i>
+                                                </div>
+                                                <div>
+                                                    <h6 class="mb-1">${passenger.name || `Passenger ${passenger.id + 1}`}</h6>
+                                                    <small class="text-muted">
+                                                        ${passenger.discountType !== 'regular' ? `${passenger.discountType.toUpperCase()} discount` : 'Regular fare'}
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Remove existing modal if any
+            const existingModal = document.getElementById('seatSelectionModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // Add modal to body
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+            // Add hover effects
+            document.querySelectorAll('.passenger-option').forEach(option => {
+                option.addEventListener('mouseenter', function() {
+                    this.style.backgroundColor = '#f8f9fa';
+                    this.style.borderColor = '#007bff';
+                });
+                option.addEventListener('mouseleave', function() {
+                    this.style.backgroundColor = '';
+                    this.style.borderColor = '';
+                });
+            });
+            
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('seatSelectionModal'));
+            modal.show();
+        }
+
+        function selectPassengerForSeat(seatNumber, passengerId) {
+            assignSeatToPassenger(seatNumber, passengerId);
+            
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('seatSelectionModal'));
+            if (modal) {
+                modal.hide();
+            }
+            
+            updateSeatMap();
+            updatePassengersSummary();
+            checkBookingReadiness();
+        }
+
+        function openSeatSelector(passengerId) {
+            if (!selectedBusData) {
+                alert('Please select a bus first before choosing seats.');
+                return;
+            }
+            
+            // Scroll to seat map and highlight it
+            const seatMapCard = document.getElementById('seat-map-card');
+            if (seatMapCard.style.display === 'none') {
+                seatMapCard.style.display = 'block';
+            }
+            
+            seatMapCard.scrollIntoView({ behavior: 'smooth' });
+            
+            // Highlight the seat map temporarily
+            seatMapCard.style.boxShadow = '0 0 20px rgba(0, 123, 255, 0.5)';
+            setTimeout(() => {
+                seatMapCard.style.boxShadow = '';
+            }, 3000);
+            
+            // Show instruction for this specific passenger
+            const passenger = passengers.find(p => p.id === passengerId);
+            const passengerName = passenger ? (passenger.name || `Passenger ${passengerId + 1}`) : `Passenger ${passengerId + 1}`;
+            
+            showSeatSelectionInstruction(passengerName);
+        }
+
+        function showSeatSelectionInstruction(passengerName) {
+            // Remove any existing instruction
+            const existingInstruction = document.querySelector('.seat-selection-instruction');
+            if (existingInstruction) {
+                existingInstruction.remove();
+            }
+            
+            // Create new instruction
+            const instructionHTML = `
+                <div class="alert alert-info seat-selection-instruction" role="alert">
+                    <div class="d-flex align-items-center">
+                        <div class="me-3">
+                            <i class="fas fa-hand-pointer fa-2x text-info"></i>
+                        </div>
+                        <div>
+                            <h6 class="alert-heading mb-1">Select Seat for ${passengerName}</h6>
+                            <p class="mb-0">Click on any <span class="badge bg-success">green seat</span> below to assign it to this passenger. 
+                            You can change seat assignments by clicking on different available seats.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Insert before seat map
+            const seatMapContainer = document.querySelector('.seat-map-container');
+            seatMapContainer.insertAdjacentHTML('beforebegin', instructionHTML);
+            
+            // Auto-remove instruction after 10 seconds
+            setTimeout(() => {
+                const instruction = document.querySelector('.seat-selection-instruction');
+                if (instruction) {
+                    instruction.remove();
+                }
+            }, 10000);
         }
 
         function updateSeatMap() {
@@ -2117,4 +2571,4 @@ if ($current_bus_id > 0) {
         });
     </script>
 </body>
-</html>
+</html>      
