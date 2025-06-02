@@ -1,219 +1,328 @@
 <?php
-// get_booked_seats.php - API endpoint for fetching booked seats
+/**
+ * API endpoint to fetch booked seats for a specific bus and date
+ * Synced with unified booking system and database schema
+ * Place this file in: ../../backend/connections/get_booked_seats.php
+ */
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
+
+// Handle preflight requests
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
 
 // Database connection
 require_once "config.php";
 
-// Check if connection exists
+// Check if connection exists and is valid
 if (!isset($conn) || !($conn instanceof mysqli)) {
     http_response_code(500);
-    echo json_encode(['error' => 'Database connection not established']);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Database connection not established',
+        'bookedSeats' => []
+    ]);
     exit;
 }
 
 if ($conn->connect_error) {
     http_response_code(500);
-    echo json_encode(['error' => 'Connection failed: ' . $conn->connect_error]);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Connection failed: ' . $conn->connect_error,
+        'bookedSeats' => []
+    ]);
     exit;
 }
 
 // Get parameters
 $bus_id = isset($_GET['bus_id']) ? intval($_GET['bus_id']) : 0;
 $date = isset($_GET['date']) ? $_GET['date'] : '';
-$trip_number = isset($_GET['trip_number']) ? $_GET['trip_number'] : '';
+
+// Debug logging
+error_log("get_booked_seats.php called with bus_id: $bus_id, date: $date");
 
 // Validate parameters
 if ($bus_id <= 0) {
     http_response_code(400);
-    echo json_encode(['error' => 'Invalid bus ID']);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Invalid bus ID',
+        'bookedSeats' => []
+    ]);
     exit;
 }
 
 if (empty($date) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
     http_response_code(400);
-    echo json_encode(['error' => 'Invalid date format. Use YYYY-MM-DD']);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Invalid date format. Use YYYY-MM-DD',
+        'bookedSeats' => []
+    ]);
     exit;
 }
 
-// Validate that the date is not in the past (optional check)
-if (strtotime($date) < strtotime(date('Y-m-d'))) {
-    // Allow past dates for viewing historical bookings, but add flag
-    $isPastDate = true;
-} else {
-    $isPastDate = false;
-}
-
 try {
-    // Build query with optional trip number filter
-    $queryConditions = "bus_id = ? AND DATE(booking_date) = ? AND booking_status = 'confirmed'";
-    $queryParams = [$bus_id, $date];
-    $paramTypes = "is";
-    
-    if (!empty($trip_number)) {
-        $queryConditions .= " AND trip_number = ?";
-        $queryParams[] = $trip_number;
-        $paramTypes .= "s";
-    }
-    
-    // Fetch booked seats for the given bus and date
-    $query = "SELECT seat_number, passenger_name, booking_reference, booking_status, 
-                     payment_status, created_at, trip_number, ticket_group_id,
-                     discount_type, passenger_age
-              FROM bookings 
-              WHERE $queryConditions
-              ORDER BY seat_number ASC";
+    // Enhanced query to fetch comprehensive booking information
+    $query = "SELECT 
+                b.id as booking_id,
+                b.seat_number, 
+                b.passenger_name, 
+                b.discount_type, 
+                b.discount_verified,
+                b.booking_reference, 
+                b.booking_status,
+                b.payment_method,
+                b.payment_status,
+                b.group_booking_id,
+                b.base_fare,
+                b.discount_amount,
+                b.final_fare,
+                b.created_at,
+                b.updated_at,
+                u.first_name,
+                u.last_name,
+                u.email,
+                u.contact_number
+              FROM bookings b
+              LEFT JOIN users u ON b.user_id = u.id
+              WHERE b.bus_id = ? 
+                AND DATE(b.booking_date) = ? 
+                AND b.booking_status = 'confirmed' 
+              ORDER BY b.seat_number";
     
     $stmt = $conn->prepare($query);
-    $stmt->bind_param($paramTypes, ...$queryParams);
-    $stmt->execute();
-    $result = $stmt->get_result();
     
-    $bookedSeats = [];
-    $seatDetails = [];
-    $groupedBookings = [];
+    if (!$stmt) {
+        throw new Exception("Prepare failed: " . $conn->error);
+    }
+    
+    $stmt->bind_param("is", $bus_id, $date);
+    
+    if (!$stmt->execute()) {
+        throw new Exception("Execute failed: " . $stmt->error);
+    }
+    
+    $result = $stmt->get_result();
+    $booked_seats = [];
+    $seat_details = [];
+    $group_bookings = [];
+    $total_revenue = 0;
+    $total_discount = 0;
     
     while ($row = $result->fetch_assoc()) {
-        $seatNumber = (int)$row['seat_number'];
-        $bookedSeats[] = $seatNumber;
+        $seat_number = (int)$row['seat_number'];
+        $booked_seats[] = $seat_number;
         
-        $seatDetail = [
-            'seat_number' => $seatNumber,
-            'passenger_name' => $row['passenger_name'] ?? 'Not specified',
-            'passenger_age' => $row['passenger_age'] ? (int)$row['passenger_age'] : null,
+        // Calculate totals
+        $total_revenue += floatval($row['final_fare'] ?? 0);
+        $total_discount += floatval($row['discount_amount'] ?? 0);
+        
+        // Detailed seat information
+        $seat_details[$seat_number] = [
+            'booking_id' => $row['booking_id'],
+            'passenger_name' => $row['passenger_name'],
+            'discount_type' => $row['discount_type'],
+            'discount_verified' => (bool)$row['discount_verified'],
             'booking_reference' => $row['booking_reference'],
             'booking_status' => $row['booking_status'],
+            'payment_method' => $row['payment_method'],
             'payment_status' => $row['payment_status'],
-            'trip_number' => $row['trip_number'],
-            'discount_type' => $row['discount_type'] ?? 'regular',
+            'group_booking_id' => $row['group_booking_id'],
+            'base_fare' => floatval($row['base_fare'] ?? 0),
+            'discount_amount' => floatval($row['discount_amount'] ?? 0),
+            'final_fare' => floatval($row['final_fare'] ?? 0),
             'booked_at' => $row['created_at'],
-            'ticket_group_id' => $row['ticket_group_id']
+            'updated_at' => $row['updated_at'],
+            'booker_info' => [
+                'first_name' => $row['first_name'],
+                'last_name' => $row['last_name'],
+                'email' => $row['email'],
+                'contact_number' => $row['contact_number']
+            ]
         ];
         
-        $seatDetails[] = $seatDetail;
-        
-        // Group bookings by ticket_group_id for multiple bookings
-        if (!empty($row['ticket_group_id'])) {
-            if (!isset($groupedBookings[$row['ticket_group_id']])) {
-                $groupedBookings[$row['ticket_group_id']] = [];
+        // Group booking tracking
+        if (!empty($row['group_booking_id'])) {
+            if (!isset($group_bookings[$row['group_booking_id']])) {
+                $group_bookings[$row['group_booking_id']] = [
+                    'seats' => [],
+                    'total_passengers' => 0,
+                    'total_amount' => 0,
+                    'payment_method' => $row['payment_method'],
+                    'payment_status' => $row['payment_status']
+                ];
             }
-            $groupedBookings[$row['ticket_group_id']][] = $seatDetail;
+            $group_bookings[$row['group_booking_id']]['seats'][] = $seat_number;
+            $group_bookings[$row['group_booking_id']]['total_passengers']++;
+            $group_bookings[$row['group_booking_id']]['total_amount'] += floatval($row['final_fare'] ?? 0);
         }
     }
     
-    // Get bus information
-    $busQuery = "SELECT seat_capacity, bus_type, plate_number, driver_name, conductor_name, route_name FROM buses WHERE id = ?";
-    $busStmt = $conn->prepare($busQuery);
-    $busStmt->bind_param("i", $bus_id);
-    $busStmt->execute();
-    $busResult = $busStmt->get_result();
+    error_log("Found " . count($booked_seats) . " booked seats for bus $bus_id on $date");
     
-    $busInfo = null;
-    if ($busResult->num_rows > 0) {
-        $busInfo = $busResult->fetch_assoc();
-        $busInfo['seat_capacity'] = (int)$busInfo['seat_capacity'];
-    } else {
-        http_response_code(404);
-        echo json_encode(['error' => 'Bus not found']);
-        exit;
-    }
+    // Get comprehensive bus information
+    $bus_query = "SELECT 
+                    b.id,
+                    b.seat_capacity, 
+                    b.bus_type, 
+                    b.plate_number,
+                    b.driver_name,
+                    b.conductor_name,
+                    b.route_name,
+                    b.status,
+                    s.departure_time,
+                    s.arrival_time,
+                    s.trip_number,
+                    r.fare as route_fare,
+                    r.distance,
+                    r.estimated_duration
+                  FROM buses b
+                  LEFT JOIN schedules s ON b.id = s.bus_id
+                  LEFT JOIN routes r ON b.route_name LIKE CONCAT(r.origin, ' → ', r.destination)
+                  WHERE b.id = ?
+                  LIMIT 1";
     
-    // Get schedule information for this bus and date
-    $scheduleQuery = "SELECT departure_time, arrival_time, trip_number, fare_amount 
-                      FROM schedules 
-                      WHERE bus_id = ? AND status = 'active'
-                      AND (recurring = 1 OR (recurring = 0 AND date = ?))";
+    $bus_stmt = $conn->prepare($bus_query);
+    $bus_stmt->bind_param("i", $bus_id);
+    $bus_stmt->execute();
+    $bus_result = $bus_stmt->get_result();
     
-    if (!empty($trip_number)) {
-        $scheduleQuery .= " AND trip_number = ?";
-        $scheduleStmt = $conn->prepare($scheduleQuery);
-        $scheduleStmt->bind_param("iss", $bus_id, $date, $trip_number);
-    } else {
-        $scheduleStmt = $conn->prepare($scheduleQuery);
-        $scheduleStmt->bind_param("is", $bus_id, $date);
-    }
-    
-    $scheduleStmt->execute();
-    $scheduleResult = $scheduleStmt->get_result();
-    
-    $scheduleInfo = [];
-    while ($scheduleRow = $scheduleResult->fetch_assoc()) {
-        $scheduleInfo[] = [
-            'trip_number' => $scheduleRow['trip_number'],
-            'departure_time' => date('h:i A', strtotime($scheduleRow['departure_time'])),
-            'arrival_time' => date('h:i A', strtotime($scheduleRow['arrival_time'])),
-            'fare_amount' => (float)$scheduleRow['fare_amount']
-        ];
-    }
-    
-    // Calculate availability
-    $totalSeats = $busInfo['seat_capacity'];
-    $availableSeats = $totalSeats - count($bookedSeats);
-    $occupancyRate = $totalSeats > 0 ? round((count($bookedSeats) / $totalSeats) * 100, 2) : 0;
-    
-    // Calculate revenue statistics
-    $totalRevenue = 0;
-    $passengerCount = count($seatDetails);
-    $groupBookingCount = count($groupedBookings);
-    $singleBookingCount = $passengerCount - array_sum(array_map('count', $groupedBookings));
-    
-    // Get fare information for revenue calculation
-    if (!empty($scheduleInfo)) {
-        $fareAmount = $scheduleInfo[0]['fare_amount'];
-        foreach ($seatDetails as $seat) {
-            $fareForSeat = $fareAmount;
-            // Apply discount if applicable
-            if ($seat['discount_type'] !== 'regular') {
-                $fareForSeat = $fareAmount * 0.8; // 20% discount
-            }
-            $totalRevenue += $fareForSeat;
+    $bus_info = null;
+    if ($bus_result->num_rows > 0) {
+        $bus_info = $bus_result->fetch_assoc();
+        // Format times if available
+        if ($bus_info['departure_time']) {
+            $bus_info['departure_time_formatted'] = date('h:i A', strtotime($bus_info['departure_time']));
+        }
+        if ($bus_info['arrival_time']) {
+            $bus_info['arrival_time_formatted'] = date('h:i A', strtotime($bus_info['arrival_time']));
         }
     }
     
-    // Response
-    $response = [
-        'success' => true,
-        'bus_id' => $bus_id,
-        'date' => $date,
-        'trip_number' => $trip_number,
-        'is_past_date' => $isPastDate,
-        'bookedSeats' => $bookedSeats,
-        'seatDetails' => $seatDetails,
-        'groupedBookings' => $groupedBookings,
-        'scheduleInfo' => $scheduleInfo,
-        'busInfo' => $busInfo,
-        'statistics' => [
-            'totalSeats' => $totalSeats,
-            'availableSeats' => $availableSeats,
-            'bookedSeats' => count($bookedSeats),
-            'occupancyRate' => $occupancyRate,
-            'passengerCount' => $passengerCount,
-            'singleBookings' => $singleBookingCount,
-            'groupBookings' => $groupBookingCount,
-            'estimatedRevenue' => round($totalRevenue, 2)
-        ],
-        'timestamp' => date('Y-m-d H:i:s')
+    // Calculate availability statistics
+    $available_seats = 0;
+    $occupancy_rate = 0;
+    $capacity = 0;
+    
+    if ($bus_info) {
+        $capacity = (int)$bus_info['seat_capacity'];
+        $available_seats = $capacity - count($booked_seats);
+        $occupancy_rate = $capacity > 0 ? round((count($booked_seats) / $capacity) * 100, 2) : 0;
+    }
+    
+    // Check for any pending bookings that might affect availability
+    $pending_query = "SELECT COUNT(*) as pending_count 
+                      FROM bookings 
+                      WHERE bus_id = ? 
+                        AND DATE(booking_date) = ? 
+                        AND booking_status IN ('pending', 'confirmed')";
+    
+    $pending_stmt = $conn->prepare($pending_query);
+    $pending_stmt->bind_param("is", $bus_id, $date);
+    $pending_stmt->execute();
+    $pending_result = $pending_stmt->get_result();
+    $pending_data = $pending_result->fetch_assoc();
+    $pending_bookings = (int)$pending_data['pending_count'];
+    
+    // Get discount statistics
+    $discount_stats = [
+        'regular' => 0,
+        'student' => 0,
+        'senior' => 0,
+        'pwd' => 0
     ];
     
+    foreach ($seat_details as $seat_detail) {
+        $discount_type = $seat_detail['discount_type'] ?? 'regular';
+        if (isset($discount_stats[$discount_type])) {
+            $discount_stats[$discount_type]++;
+        }
+    }
+    
+    // Prepare comprehensive response
+    $response = [
+        'success' => true,
+        'timestamp' => date('Y-m-d H:i:s'),
+        'bus_id' => $bus_id,
+        'date' => $date,
+        'bookedSeats' => $booked_seats,
+        'seatDetails' => $seat_details,
+        'groupBookings' => $group_bookings,
+        'statistics' => [
+            'total_booked' => count($booked_seats),
+            'available_seats' => $available_seats,
+            'capacity' => $capacity,
+            'occupancy_rate' => $occupancy_rate,
+            'pending_bookings' => $pending_bookings,
+            'total_revenue' => round($total_revenue, 2),
+            'total_discount' => round($total_discount, 2),
+            'discount_breakdown' => $discount_stats
+        ],
+        'busInfo' => $bus_info,
+        'seat_map' => [
+            'total_seats' => $capacity,
+            'booked_seats' => $booked_seats,
+            'available_seats' => array_diff(range(1, $capacity), $booked_seats)
+        ]
+    ];
+    
+    // Add warning if bus is nearly full
+    if ($occupancy_rate >= 90) {
+        $response['warnings'] = ['Bus is nearly full (' . $occupancy_rate . '% occupied)'];
+    }
+    
+    // Add payment verification status for online payments
+    $verification_needed = 0;
+    foreach ($seat_details as $seat_detail) {
+        if (in_array($seat_detail['payment_method'], ['gcash', 'paymaya']) && 
+            $seat_detail['payment_status'] === 'awaiting_verification') {
+            $verification_needed++;
+        }
+    }
+    
+    if ($verification_needed > 0) {
+        $response['admin_notes'] = [
+            'payments_awaiting_verification' => $verification_needed
+        ];
+    }
+    
+    error_log("Returning seat data: " . count($booked_seats) . " booked seats");
     echo json_encode($response, JSON_PRETTY_PRINT);
     
 } catch (Exception $e) {
     error_log("Error fetching booked seats: " . $e->getMessage());
+    error_log("Stack trace: " . $e->getTraceAsString());
+    
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Internal server error',
-        'message' => 'Failed to fetch booked seats',
-        'debug' => [
-            'bus_id' => $bus_id,
-            'date' => $date,
-            'trip_number' => $trip_number
+        'error' => 'Failed to fetch booked seats',
+        'message' => $e->getMessage(),
+        'bookedSeats' => [], // Always provide this for JavaScript compatibility
+        'statistics' => [
+            'total_booked' => 0,
+            'available_seats' => 0,
+            'capacity' => 0,
+            'occupancy_rate' => 0
         ]
     ]);
+} finally {
+    // Clean up prepared statements
+    if (isset($stmt)) {
+        $stmt->close();
+    }
+    if (isset($bus_stmt)) {
+        $bus_stmt->close();
+    }
+    if (isset($pending_stmt)) {
+        $pending_stmt->close();
+    }
 }
-
-$conn->close();
 ?>

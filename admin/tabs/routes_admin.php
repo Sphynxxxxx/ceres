@@ -34,28 +34,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $distance = $_POST['distance'];
         $estimated_duration = $_POST['estimated_duration'];
         
-        // Calculate fare based on distance using fare calculator
-        $fareRange = $fareCalculator->getFareRange($distance);
-        $fare = $fareRange['regular'];
-        
-        try {
-            if ($route_id) {
-                // Update existing route
-                $stmt = $conn->prepare("UPDATE routes SET origin = ?, destination = ?, distance = ?, estimated_duration = ?, fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
-                $stmt->bind_param("ssdsdi", $origin, $destination, $distance, $estimated_duration, $fare, $route_id);
-                $stmt->execute();
-                
-                $success_message = "Route updated successfully!";
-            } else {
-                // Create new route
-                $stmt = $conn->prepare("INSERT INTO routes (origin, destination, distance, estimated_duration, fare) VALUES (?, ?, ?, ?, ?)");
-                $stmt->bind_param("ssdsd", $origin, $destination, $distance, $estimated_duration, $fare);
-                $stmt->execute();
-                
-                $success_message = "Route created successfully!";
+        // Validate inputs
+        if (empty($origin) || empty($destination) || empty($distance) || empty($estimated_duration)) {
+            $error_message = "All fields are required!";
+        } elseif (!is_numeric($distance) || $distance <= 0) {
+            $error_message = "Distance must be a positive number!";
+        } else {
+            // Calculate fare based on distance using fare calculator
+            $fareRange = $fareCalculator->getFareRange($distance);
+            $fare = $fareRange['regular'];
+            
+            try {
+                if ($route_id) {
+                    // Update existing route
+                    $stmt = $conn->prepare("UPDATE routes SET origin = ?, destination = ?, distance = ?, estimated_duration = ?, fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+                    $stmt->bind_param("ssdsdi", $origin, $destination, $distance, $estimated_duration, $fare, $route_id);
+                    $stmt->execute();
+                    
+                    $success_message = "Route updated successfully!";
+                } else {
+                    // Create new route
+                    $stmt = $conn->prepare("INSERT INTO routes (origin, destination, distance, estimated_duration, fare) VALUES (?, ?, ?, ?, ?)");
+                    $stmt->bind_param("ssdsd", $origin, $destination, $distance, $estimated_duration, $fare);
+                    $stmt->execute();
+                    
+                    $success_message = "Route created successfully!";
+                }
+            } catch (Exception $e) {
+                $error_message = "Error: " . $e->getMessage();
             }
-        } catch (Exception $e) {
-            $error_message = "Error: " . $e->getMessage();
         }
     }
     
@@ -151,14 +158,6 @@ try {
 
 // Generate fare table for display
 $fareTable = $fareCalculator->getFareTable(100, 10);
-
-// Notification count for display in header (demo data)
-$notification_count = 3;
-$notifications = [
-    ['message' => 'New booking received', 'time' => '5 minutes ago'],
-    ['message' => 'Bus schedule updated', 'time' => '1 hour ago'],
-    ['message' => 'New user registered', 'time' => '3 hours ago']
-];
 ?>
 
 <!DOCTYPE html>
@@ -493,25 +492,36 @@ $notifications = [
                     <form id="addRouteForm" method="post" action="routes_admin.php">
                         <div class="mb-3">
                             <label for="origin" class="form-label">Origin <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="origin" name="origin" required>
+                            <input type="text" class="form-control" id="origin" name="origin" required
+                                    placeholder="e.g. Iloilo City">
                         </div>
                         
                         <div class="mb-3">
                             <label for="destination" class="form-label">Destination <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="destination" name="destination" required>
+                            <input type="text" class="form-control" id="destination" name="destination" required
+                                    placeholder="e.g. Miagao">
                         </div>
+                        
+                        <!-- Map container for visualization -->
+                        <div id="map-container"></div>
                         
                         <div class="mb-3">
                             <label for="distance" class="form-label">Distance (km) <span class="text-danger">*</span></label>
-                            <input type="number" class="form-control" id="distance" name="distance" step="0.01" min="0" required
-                                   oninput="calculateFare(this.value)">
-                            <div class="form-text">The fare will be calculated automatically based on distance.</div>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="distance" name="distance" step="0.01" min="0" required
+                                        readonly>
+                                <button class="btn btn-outline-secondary" type="button" id="calculateDistanceBtn">
+                                    <i class="fas fa-sync-alt"></i> Calculate
+                                    <span class="loading-spinner" id="distanceSpinner"></span>
+                                </button>
+                            </div>
+                            <div class="form-text">Click "Calculate" to get the distance automatically.</div>
                         </div>
                         
                         <div class="mb-3">
                             <label for="estimated_duration" class="form-label">Estimated Travel Time <span class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="estimated_duration" name="estimated_duration" required
-                                   placeholder="e.g. 2h 30m">
+                                    placeholder="e.g. 2h 30m" readonly>
                         </div>
                         
                         <div class="mb-3">
@@ -554,15 +564,24 @@ $notifications = [
                             <input type="text" class="form-control" id="edit_destination" name="destination" required>
                         </div>
                         
+                        <!-- Map container for visualization -->
+                        <div id="edit-map-container"></div>
+                        
                         <div class="mb-3">
                             <label for="edit_distance" class="form-label">Distance (km) <span class="text-danger">*</span></label>
-                            <input type="number" class="form-control" id="edit_distance" name="distance" step="0.01" min="0" required
-                                   oninput="calculateEditFare(this.value)">
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="edit_distance" name="distance" step="0.01" min="0" required
+                                        readonly>
+                                <button class="btn btn-outline-secondary" type="button" id="editCalculateDistanceBtn">
+                                    <i class="fas fa-sync-alt"></i> Calculate
+                                    <span class="loading-spinner" id="editDistanceSpinner"></span>
+                                </button>
+                            </div>
                         </div>
                         
                         <div class="mb-3">
                             <label for="edit_estimated_duration" class="form-label">Estimated Travel Time <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="edit_estimated_duration" name="estimated_duration" required>
+                            <input type="text" class="form-control" id="edit_estimated_duration" name="estimated_duration" required readonly>
                         </div>
                         
                         <div class="mb-3">
@@ -614,11 +633,59 @@ $notifications = [
             document.body.classList.toggle('collapsed-sidebar');
         });
 
-        // Enable tooltips
-        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl)
-        });
+        // Function to calculate distance and duration (without map)
+        function calculateRoute(origin, destination, isEditForm = false) {
+            const spinnerId = isEditForm ? 'editDistanceSpinner' : 'distanceSpinner';
+            const distanceField = isEditForm ? 'edit_distance' : 'distance';
+            const durationField = isEditForm ? 'edit_estimated_duration' : 'estimated_duration';
+            
+            // Show loading spinner
+            document.getElementById(spinnerId).style.display = 'inline-block';
+            
+            // Clear previous results
+            document.getElementById(distanceField).value = '';
+            document.getElementById(durationField).value = '';
+            
+            if (!origin || !destination) {
+                alert('Please enter both origin and destination');
+                document.getElementById(spinnerId).style.display = 'none';
+                return;
+            }
+            
+            // Simulate API call delay
+            setTimeout(() => {
+                // Hide loading spinner
+                document.getElementById(spinnerId).style.display = 'none';
+                
+                // In a real application, you would get these values from your database or a calculation
+                // For demo purposes, we'll use fixed values based on origin/destination
+                let distanceInKm = '25.00'; // Default distance
+                let durationString = '45m'; // Default duration
+                
+                // Simple distance calculation based on route
+                if (origin.toLowerCase() === 'iloilo' && destination.toLowerCase() === 'roxas') {
+                    distanceInKm = '95.00';
+                    durationString = '2h 30m';
+                } else if (origin.toLowerCase() === 'iloilo' && destination.toLowerCase() === 'kalibo') {
+                    distanceInKm = '120.00';
+                    durationString = '3h 15m';
+                } else if (origin.toLowerCase() === 'roxas' && destination.toLowerCase() === 'kalibo') {
+                    distanceInKm = '80.00';
+                    durationString = '2h';
+                }
+                
+                // Update form fields
+                document.getElementById(distanceField).value = distanceInKm;
+                document.getElementById(durationField).value = durationString;
+                
+                // Calculate fare based on distance
+                if (isEditForm) {
+                    calculateEditFare(distanceInKm);
+                } else {
+                    calculateFare(distanceInKm);
+                }
+            }, 1000); // Simulate 1 second delay for "calculation"
+        }
         
         // Function to calculate fare based on distance
         function calculateFare(distance) {
@@ -684,34 +751,51 @@ $notifications = [
             document.getElementById('edit_fare_info').innerHTML = `Discounted fare (20%): ₱${discountedFare.toFixed(2)}`;
         }
         
-        // Edit route modal
-        document.querySelectorAll('.edit-route').forEach(button => {
-            button.addEventListener('click', function() {
-                const id = this.getAttribute('data-id');
-                const origin = this.getAttribute('data-bs-origin');
-                const destination = this.getAttribute('data-bs-destination');
-                const distance = this.getAttribute('data-bs-distance');
-                const duration = this.getAttribute('data-bs-duration');
-                
-                document.getElementById('edit_route_id').value = id;
-                document.getElementById('edit_origin').value = origin;
-                document.getElementById('edit_destination').value = destination;
-                document.getElementById('edit_distance').value = distance;
-                document.getElementById('edit_estimated_duration').value = duration;
-                
-                // Calculate fare based on distance
-                calculateEditFare(distance);
+        // Set up event listeners when DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            // Calculate distance for new route
+            document.getElementById('calculateDistanceBtn').addEventListener('click', function() {
+                const origin = document.getElementById('origin').value;
+                const destination = document.getElementById('destination').value;
+                calculateRoute(origin, destination, false);
             });
-        });
-        
-        // Delete route modal
-        document.querySelectorAll('.delete-route').forEach(button => {
-            button.addEventListener('click', function() {
-                const id = this.getAttribute('data-id');
-                const name = this.getAttribute('data-name');
-                
-                document.getElementById('delete_route_id').value = id;
-                document.getElementById('route_name_display').textContent = name;
+            
+            // Calculate distance for edit route
+            document.getElementById('editCalculateDistanceBtn').addEventListener('click', function() {
+                const origin = document.getElementById('edit_origin').value;
+                const destination = document.getElementById('edit_destination').value;
+                calculateRoute(origin, destination, true);
+            });
+            
+            // Edit route modal
+            document.querySelectorAll('.edit-route').forEach(button => {
+                button.addEventListener('click', function() {
+                    const id = this.getAttribute('data-id');
+                    const origin = this.getAttribute('data-bs-origin');
+                    const destination = this.getAttribute('data-bs-destination');
+                    const distance = this.getAttribute('data-bs-distance');
+                    const duration = this.getAttribute('data-bs-duration');
+                    
+                    document.getElementById('edit_route_id').value = id;
+                    document.getElementById('edit_origin').value = origin;
+                    document.getElementById('edit_destination').value = destination;
+                    document.getElementById('edit_distance').value = distance;
+                    document.getElementById('edit_estimated_duration').value = duration;
+                    
+                    // Calculate fare based on distance
+                    calculateEditFare(distance);
+                });
+            });
+            
+            // Delete route modal
+            document.querySelectorAll('.delete-route').forEach(button => {
+                button.addEventListener('click', function() {
+                    const id = this.getAttribute('data-id');
+                    const name = this.getAttribute('data-name');
+                    
+                    document.getElementById('delete_route_id').value = id;
+                    document.getElementById('route_name_display').textContent = name;
+                });
             });
         });
     </script>
