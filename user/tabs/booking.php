@@ -71,9 +71,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
     
     // Validate discount ID proof if discount is selected
     $discount_id_path = null;
-    if ($discount_type !== 'regular' && 
-        (!isset($_FILES['discount_id_proof']) || $_FILES['discount_id_proof']['error'] !== UPLOAD_ERR_OK)) {
-        $errors[] = "Please upload valid ID for " . ucfirst($discount_type) . " discount verification";
+    if ($discount_type !== 'regular') {
+        // Only require ID upload for online payments (gcash/paymaya)
+        if ($payment_method === 'gcash' || $payment_method === 'paymaya') {
+            if (!isset($_FILES['discount_id_proof']) || $_FILES['discount_id_proof']['error'] !== UPLOAD_ERR_OK) {
+                $errors[] = "Please upload valid ID for " . ucfirst($discount_type) . " discount verification when paying online";
+            }
+        }
+    
     }
     
     if (empty($errors)) {
@@ -106,10 +111,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_ticket'])) {
             
             // Process discount ID upload if applicable
             if ($discount_type !== 'regular') {
-                $discount_id_path = processDiscountIDUpload($discount_type);
-                
-                if (!$discount_id_path) {
-                    throw new Exception("Failed to upload discount ID proof. Please try again.");
+                // Try to process the ID upload if a file was provided
+                if (isset($_FILES['discount_id_proof']) && $_FILES['discount_id_proof']['error'] === UPLOAD_ERR_OK) {
+                    $discount_id_path = processDiscountIDUpload($discount_type);
+                    
+                    if (!$discount_id_path && ($payment_method === 'gcash' || $payment_method === 'paymaya')) {
+                        // Only throw error for online payments
+                        throw new Exception("Failed to upload discount ID proof. Please try again.");
+                    }
+                } else {
+                    // For counter payments, this is acceptable
+                    if ($payment_method === 'counter') {
+                        // Log that verification will happen at terminal
+                        error_log("Counter payment with {$discount_type} discount - ID verification will be done at terminal");
+                    }
                 }
             }
             
@@ -1236,14 +1251,16 @@ if ($current_bus_id > 0) {
                                         <h5 class="mb-0"><i class="fas fa-credit-card me-2"></i>Select Payment Method</h5>
                                     </div>
                                     <div class="card-body">
-                                        <!-- Discount Selection Section - NEW -->
+                                        <!-- Updated Discount Selection Section -->
                                         <div class="card mb-4">
                                             <div class="card-header bg-info text-white">
                                                 <h5 class="mb-0"><i class="fas fa-tag me-2"></i>Discount Options</h5>
                                             </div>
                                             <div class="card-body">
                                                 <div class="alert alert-info mb-3">
-                                                    <i class="fas fa-info-circle me-2"></i>If eligible, you can select a discount category. Valid ID is required for verification.
+                                                    <i class="fas fa-info-circle me-2"></i>If eligible, you can select a discount category. 
+                                                    <strong>For online payments:</strong> Valid ID upload is required. 
+                                                    <strong>For counter payments:</strong> Present your ID at the terminal for verification.
                                                 </div>
                                                 
                                                 <div class="discount-options mb-3">
@@ -1256,29 +1273,34 @@ if ($current_bus_id > 0) {
                                                     <div class="form-check mb-2">
                                                         <input class="form-check-input discount-option" type="radio" name="discount_type" id="discount_student" value="student">
                                                         <label class="form-check-label" for="discount_student">
-                                                            Student (20% Off) - Must upload Student ID
+                                                            Student (20% Off) - Present Student ID
                                                         </label>
                                                     </div>
                                                     <div class="form-check mb-2">
                                                         <input class="form-check-input discount-option" type="radio" name="discount_type" id="discount_senior" value="senior">
                                                         <label class="form-check-label" for="discount_senior">
-                                                            Senior Citizen (20% Off) - Must upload Senior Citizen ID
+                                                            Senior Citizen (20% Off) - Present Senior Citizen ID
                                                         </label>
                                                     </div>
                                                     <div class="form-check mb-2">
                                                         <input class="form-check-input discount-option" type="radio" name="discount_type" id="discount_pwd" value="pwd">
                                                         <label class="form-check-label" for="discount_pwd">
-                                                            PWD (20% Off) - Must upload PWD ID
+                                                            PWD (20% Off) - Present PWD ID
                                                         </label>
                                                     </div>
                                                 </div>
                                                 
-                                                <!-- ID Upload Section -->
+                                                <!-- ID Upload Section - Only shown for online payments -->
                                                 <div id="id-upload-section" style="display: none;">
                                                     <div class="card card-body bg-light mb-3">
-                                                        <h6 class="mb-3"><i class="fas fa-id-card me-2"></i>Upload Valid ID for Verification</h6>
+                                                        <h6 class="mb-3"><i class="fas fa-id-card me-2"></i>Upload Valid ID for Online Payment Verification</h6>
+                                                        <div class="alert alert-warning alert-sm mb-3">
+                                                            <i class="fas fa-exclamation-triangle me-2"></i>
+                                                            <strong>Note:</strong> ID upload is only required for online payments (GCash/PayMaya). 
+                                                            If paying over the counter, you can present your ID at the terminal instead.
+                                                        </div>
                                                         <div class="mb-3">
-                                                            <label for="discount_id_proof" class="form-label">Upload your ID (Required for discount)</label>
+                                                            <label for="discount_id_proof" class="form-label">Upload your ID (Required for online discount verification)</label>
                                                             <input class="form-control" type="file" id="discount_id_proof" name="discount_id_proof" accept="image/*">
                                                             <div class="form-text">Valid ID must clearly show your name, photo, and ID type. Max 5MB (JPG, PNG)</div>
                                                         </div>
@@ -2195,7 +2217,14 @@ if ($current_bus_id > 0) {
                 
                 // Enable confirm button
                 document.getElementById('confirmBookingBtn').disabled = false;
-                document.getElementById('proceedToConfirmBtn').disabled = false;
+                if (document.getElementById('proceedToConfirmBtn')) {
+                    document.getElementById('proceedToConfirmBtn').disabled = false;
+                }
+                
+                // Update ID upload visibility when payment method changes
+                setTimeout(() => {
+                    updateIdUploadVisibility();
+                }, 100);
             });
         });
 
@@ -2243,63 +2272,6 @@ if ($current_bus_id > 0) {
             document.getElementById('step3').classList.add('active');
         });
         
-        // Proceed to confirmation button
-        //document.getElementById('proceedToConfirmBtn').addEventListener('click', function() {
-        //    // Scroll to summary card for final confirmation
-        //    document.querySelector('.ticket-summary-card').scrollIntoView({ behavior: 'smooth' });
-        //    
-        //    // Add a pulse animation to the confirm booking button
-        //    const confirmBtn = document.getElementById('confirmBookingBtn');
-        //    confirmBtn.classList.add('pulse-animation');
-        //    
-        //    // Remove animation after a few seconds
-        //    setTimeout(() => {
-        //        confirmBtn.classList.remove('pulse-animation');
-        //    }, 2000);
-        //});
-        
-        // Form validation
-        document.getElementById('bookingForm').addEventListener('submit', function(e) {
-            // Check if bus is selected
-            if (!selectedBusId) {
-                e.preventDefault();
-                alert('Please select a bus first');
-                document.getElementById('bus-selection').scrollIntoView({ behavior: 'smooth' });
-                return;
-            }
-            
-            // Check if seat is selected
-            if (!selectedSeatNumber) {
-                e.preventDefault();
-                alert('Please select a seat');
-                document.getElementById('seat-selection').scrollIntoView({ behavior: 'smooth' });
-                return;
-            }
-            
-            // Check if payment method is selected
-            if (!selectedPaymentMethod) {
-                e.preventDefault();
-                alert('Please select a payment method');
-                document.getElementById('payment-selection').scrollIntoView({ behavior: 'smooth' });
-                return;
-            }
-            
-            // Add a loading overlay when submitting
-            document.body.insertAdjacentHTML('beforeend', `
-                <div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-                    background-color: rgba(0,0,0,0.5); z-index: 9999; display: flex; 
-                    justify-content: center; align-items: center;">
-                    <div class="card p-4 text-center">
-                        <div class="spinner-border text-primary mb-3" role="status">
-                            <span class="visually-hidden">Processing booking...</span>
-                        </div>
-                        <h5>Processing your booking...</h5>
-                        <p>Please wait, this may take a few moments.</p>
-                    </div>
-                </div>
-            `);
-        });
-        
         // Prevent selecting same origin and destination
         document.getElementById('origin').addEventListener('change', function() {
             const destination = document.getElementById('destination');
@@ -2328,185 +2300,11 @@ if ($current_bus_id > 0) {
         document.querySelectorAll('.bus-row').forEach(function(row) {
             row.style.cursor = 'pointer';
         });
-        
-        // Handle tab navigation preservation
-        document.addEventListener('DOMContentLoaded', function() {
-            // Add CSS styling for booked seats with striped pattern
-            const style = document.createElement('style');
-            style.textContent = `
-                .back-row-five {
-                    justify-content: center !important;
-                    padding-right: 25px;
-                }
-                
-                .back-row-five .seat {
-                    margin-left: 3px;
-                    margin-right: 3px;
-                }
-                
-                .seat.booked {
-                    background-color: #dc3545;
-                    opacity: 0.7;
-                    position: relative;
-                    overflow: hidden;
-                }
-                
-                .seat.booked::after {
-                    content: "";
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background: repeating-linear-gradient(
-                        45deg,
-                        rgba(0, 0, 0, 0.1),
-                        rgba(0, 0, 0, 0.1) 5px,
-                        rgba(0, 0, 0, 0.2) 5px,
-                        rgba(0, 0, 0, 0.2) 10px
-                    );
-                }
-                
-                @media (max-width: 768px) {
-                    .seat-row {
-                        flex-wrap: wrap;
-                    }
-                    
-                    .back-row-five {
-                        padding-right: 0;
-                    }
-                }
-            `;
-            document.head.appendChild(style);
-            
-            // Get the active tab from URL if present
-            const urlParams = new URLSearchParams(window.location.search);
-            const tab = urlParams.get('tab');
-            
-            if (tab === 'fleet') {
-                // Activate fleet tab
-                document.getElementById('view-fleet-tab').click();
-            }
-            
-            // Add tab parameter to form submission
-            document.getElementById('routeForm').addEventListener('submit', function() {
-                const activeTab = document.querySelector('.nav-link.active').getAttribute('id');
-                if (activeTab === 'view-fleet-tab') {
-                    const hiddenInput = document.createElement('input');
-                    hiddenInput.type = 'hidden';
-                    hiddenInput.name = 'tab';
-                    hiddenInput.value = 'fleet';
-                    this.appendChild(hiddenInput);
-                }
-            });
-            
-            // Initialize tooltips
-            const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
-            [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
-            
-            // Show booking success notification with animation
-            <?php if ($booking_success): ?>
-            setTimeout(() => {
-                document.querySelector('.alert-success').scrollIntoView({ behavior: 'smooth' });
-            }, 300);
-            <?php endif; ?>
-            
-            // Create seat info elements if they don't exist
-            const summaryCard = document.querySelector('.ticket-summary-card .card-body');
-            if (summaryCard) {
-                // Add seat availability info elements if they don't exist
-                if (!document.getElementById('summary_seat_info')) {
-                    const seatInfoDiv = document.createElement('div');
-                    seatInfoDiv.className = 'mb-3';
-                    seatInfoDiv.innerHTML = `
-                        <label class="form-label fw-bold">Seat Availability</label>
-                        <div id="summary_seat_info" class="mb-2">
-                            <span class="badge bg-secondary">Not selected</span>
-                        </div>
-                        <div id="seat-availability-visual">
-                            <div class="progress mb-2" style="height: 10px;">
-                                <div class="progress-bar bg-secondary" role="progressbar" 
-                                    style="width: 100%"
-                                    aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                                </div>
-                            </div>
-                            <div class="small text-center text-muted">
-                                Select a bus to see seat availability
-                            </div>
-                        </div>
-                    `;
-                    
-                    // Insert after the route information
-                    const routeElement = summaryCard.querySelector('#summary_route').parentNode;
-                    routeElement.parentNode.insertBefore(seatInfoDiv, routeElement.nextSibling);
-                }
-                
-                // Make sure payment method display exists
-                if (!document.getElementById('summary_payment_display')) {
-                    const paymentDisplayDiv = document.createElement('div');
-                    paymentDisplayDiv.className = 'mb-3';
-                    paymentDisplayDiv.innerHTML = `
-                        <label class="form-label fw-bold">Payment Method</label>
-                        <div class="form-control bg-light" id="summary_payment_display">Not selected</div>
-                    `;
-                    
-                    // Insert before the confirm button
-                    const confirmBtn = summaryCard.querySelector('#confirmBookingBtn').parentNode;
-                    confirmBtn.parentNode.insertBefore(paymentDisplayDiv, confirmBtn);
-                }
-            }
-            
-            // Add seat selection guide if it doesn't exist
-            const seatSelectionCard = document.querySelector('#seat-selection .card-body');
-            if (seatSelectionCard && !seatSelectionCard.querySelector('.seat-selection-guide')) {
-                const seatMapContainer = document.querySelector('.seat-map-container');
-                const guideElement = document.createElement('div');
-                guideElement.className = 'alert alert-info mb-3 seat-selection-guide';
-                guideElement.innerHTML = `
-                    <div class="d-flex align-items-center">
-                        <div class="me-3">
-                            <i class="fas fa-info-circle fa-2x text-info"></i>
-                        </div>
-                        <div>
-                            <h6 class="alert-heading mb-1">Seat Selection Guide</h6>
-                            <p class="mb-0 small">The seats shown in <span class="text-success fw-bold">green</span> are available for booking, while the seats in <span class="text-danger fw-bold">red</span> are already booked. The back row has 6 seats. Please select one seat for your journey.</p>
-                        </div>
-                    </div>
-                `;
-                seatSelectionCard.insertBefore(guideElement, seatMapContainer);
-            }
-            
-            // Add payment method explanation if it doesn't exist
-            const paymentSelectionCard = document.querySelector('#payment-selection .card-body');
-            if (paymentSelectionCard && !paymentSelectionCard.querySelector('.payment-selection-guide')) {
-                const paymentMethods = document.querySelector('.payment-methods');
-                if (paymentMethods) {
-                    const guideElement = document.createElement('div');
-                    guideElement.className = 'alert alert-info mb-3 payment-selection-guide';
-                    guideElement.innerHTML = `
-                        <div class="d-flex align-items-center">
-                            <div class="me-3">
-                                <i class="fas fa-info-circle fa-2x text-info"></i>
-                            </div>
-                            <div>
-                                <h6 class="alert-heading mb-1">Payment Method Guide</h6>
-                                <p class="mb-0 small">Select your preferred payment method. Over-the-counter lets you pay at the terminal before your trip, while online options like GCash and PayMaya allow for immediate payment. Click on a payment method to see more details.</p>
-                            </div>
-                        </div>
-                    `;
-                    paymentSelectionCard.insertBefore(guideElement, paymentMethods);
-                }
-            }
-
-            // Initialize discount ID proof upload functionality
-            setupDiscountIdUpload();
-        });
 
         // Function to set up discount ID proof upload
         function setupDiscountIdUpload() {
             const discountIdInput = document.getElementById('discount_id_proof');
             const idPreview = document.getElementById('id-preview');
-            const idUploadSection = document.getElementById('id-upload-section');
             
             if (!discountIdInput || !idPreview) return;
             
@@ -2586,161 +2384,6 @@ if ($current_bus_id > 0) {
             });
         }
 
-        // Handle payment proof file uploads
-        document.addEventListener('DOMContentLoaded', function() {
-            // File upload handling for both payment methods
-            setupFileUpload('gcash_payment_proof');
-            setupFileUpload('paymaya_payment_proof');
-            
-            // Update the booking form to include file upload
-            const bookingForm = document.getElementById('bookingForm');
-            if (bookingForm) {
-                bookingForm.setAttribute('enctype', 'multipart/form-data');
-                
-                // Add a hidden input for the payment proof
-                const paymentProofInput = document.createElement('input');
-                paymentProofInput.type = 'hidden';
-                paymentProofInput.id = 'payment_proof_file';
-                paymentProofInput.name = 'payment_proof_file';
-                bookingForm.appendChild(paymentProofInput);
-            }
-            
-            // Update validation to check for payment proof when required
-            if (bookingForm) {
-                const originalSubmitHandler = bookingForm.onsubmit;
-                
-                bookingForm.onsubmit = function(e) {
-                    // First check if there's an original handler and call it
-                    if (originalSubmitHandler) {
-                        // If it returns false, stop processing
-                        if (originalSubmitHandler.call(this, e) === false) {
-                            return false;
-                        }
-                    }
-                    
-                    // Check discount ID proof if discount is selected
-                    const selectedDiscount = document.querySelector('input[name="discount_type"]:checked');
-                    if (selectedDiscount && selectedDiscount.value !== 'regular') {
-                        const discountIdInput = document.getElementById('discount_id_proof');
-                        if (!discountIdInput || !discountIdInput.files || discountIdInput.files.length === 0) {
-                            e.preventDefault();
-                            alert(`Please upload your ${selectedDiscount.value} ID for verification of your discount.`);
-                            document.getElementById('id-upload-section').scrollIntoView({ behavior: 'smooth' });
-                            return false;
-                        }
-                    }
-                    
-                    // Get selected payment method
-                    const paymentMethod = document.querySelector('input[name="payment_method"]:checked');
-                    if (!paymentMethod) {
-                        e.preventDefault();
-                        alert('Please select a payment method');
-                        document.getElementById('payment-selection').scrollIntoView({ behavior: 'smooth' });
-                        return false;
-                    }
-                    
-                    // Check if payment proof is required
-                    if (paymentMethod.value === 'gcash' || paymentMethod.value === 'paymaya') {
-                        const fileInput = document.getElementById(paymentMethod.value + '_payment_proof');
-                        
-                        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-                            e.preventDefault();
-                            alert('Please upload a payment proof screenshot for ' + paymentMethod.value.toUpperCase());
-                            fileInput.focus();
-                            return false;
-                        }
-                        
-                        // Create FormData to properly include all files
-                        const formData = new FormData(bookingForm);
-                        
-                        // Add payment proof file
-                        formData.append(paymentMethod.value + '_payment_proof', fileInput.files[0]);
-                        
-                        // Add discount ID proof if applicable
-                        if (selectedDiscount && selectedDiscount.value !== 'regular') {
-                            const discountIdInput = document.getElementById('discount_id_proof');
-                            if (discountIdInput && discountIdInput.files.length > 0) {
-                                formData.append('discount_id_proof', discountIdInput.files[0]);
-                            }
-                        }
-                        
-                        // Stop the normal form submission
-                        e.preventDefault();
-                        
-                        // Show loading overlay
-                        document.body.insertAdjacentHTML('beforeend', `
-                            <div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-                                background-color: rgba(0,0,0,0.7); z-index: 9999; display: flex; 
-                                justify-content: center; align-items: center;">
-                                <div class="card p-4 text-center">
-                                    <div class="spinner-border text-primary mb-3" role="status">
-                                        <span class="visually-hidden">Processing booking and uploading proof...</span>
-                                    </div>
-                                    <h5>Processing your booking...</h5>
-                                    <p>Uploading payment proof. Please wait, this may take a few moments.</p>
-                                </div>
-                            </div>
-                        `);
-                        
-                        // Submit the form with FormData using fetch
-                        fetch(bookingForm.action, {
-                            method: 'POST',
-                            body: formData,
-                        })
-                        .then(response => {
-                            if (response.redirected) {
-                                window.location.href = response.url;
-                            } else {
-                                window.location.reload();
-                            }
-                        })
-                        .catch(error => {
-                            document.getElementById('loading-overlay').remove();
-                            alert('Error submitting booking: ' + error.message);
-                            console.error('Error:', error);
-                        });
-                        
-                        return false;
-                    }
-                    
-                    // For counter payment (no file upload needed), use normal form submission
-                    document.body.insertAdjacentHTML('beforeend', `
-                        <div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-                            background-color: rgba(0,0,0,0.7); z-index: 9999; display: flex; 
-                            justify-content: center; align-items: center;">
-                            <div class="card p-4 text-center">
-                                <div class="spinner-border text-primary mb-3" role="status">
-                                    <span class="visually-hidden">Processing booking...</span>
-                                </div>
-                                <h5>Processing your booking...</h5>
-                                <p>Please wait, this may take a few moments.</p>
-                            </div>
-                        </div>
-                    `);
-                };
-            }
-            
-            // Update payment method selection to set active file input
-            document.querySelectorAll('.payment-method-option').forEach(function(option) {
-                option.addEventListener('click', function() {
-                    const paymentMethod = this.getAttribute('data-payment');
-                    
-                    // Hide all payment proof upload sections
-                    document.querySelectorAll('.payment-proof-upload').forEach(function(upload) {
-                        upload.classList.remove('active-upload');
-                        upload.style.opacity = '0.5';
-                    });
-                    
-                    // Show only the active payment method's upload section
-                    const activeUpload = this.querySelector('.payment-proof-upload');
-                    if (activeUpload) {
-                        activeUpload.classList.add('active-upload');
-                        activeUpload.style.opacity = '1';
-                    }
-                });
-            });
-        });
-
         // Function to set up file upload handling
         function setupFileUpload(inputId) {
             const fileInput = document.getElementById(inputId);
@@ -2809,84 +2452,544 @@ if ($current_bus_id > 0) {
             });
         }
 
-        // Discount selection and fare calculation
-        document.addEventListener('DOMContentLoaded', function() {
-            const discountOptions = document.querySelectorAll('.discount-option');
+        // Function to update ID upload section visibility
+        function updateIdUploadVisibility() {
+            const selectedDiscount = document.querySelector('input[name="discount_type"]:checked');
+            const selectedPayment = document.querySelector('input[name="payment_method"]:checked');
             const idUploadSection = document.getElementById('id-upload-section');
-            let originalFare = 0;
             
+            if (!idUploadSection) return;
+            
+            // Show ID upload section only if:
+            // 1. A discount is selected (not regular)
+            if (selectedDiscount && selectedDiscount.value !== 'regular') {
+                if (selectedPayment && (selectedPayment.value === 'gcash' || selectedPayment.value === 'paymaya')) {
+                    // Online payment with discount - require ID upload
+                    idUploadSection.style.display = 'block';
+                    
+                    // Update the alert message for online payments
+                    const alertMessage = idUploadSection.querySelector('.alert-warning, .alert-info');
+                    if (alertMessage) {
+                        alertMessage.innerHTML = `
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>Online Payment:</strong> ID upload is required for discount verification before payment processing.
+                        `;
+                        alertMessage.className = 'alert alert-warning alert-sm mb-3';
+                    }
+                } else if (selectedPayment && selectedPayment.value === 'counter') {
+                    // Counter payment with discount - show info but don't require upload
+                    idUploadSection.style.display = 'block';
+                    
+                    // Update the alert message for counter payments
+                    const alertMessage = idUploadSection.querySelector('.alert-warning, .alert-info');
+                    if (alertMessage) {
+                        alertMessage.innerHTML = `
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Counter Payment:</strong> You can present your ID at the terminal for discount verification. Upload is optional.
+                        `;
+                        alertMessage.className = 'alert alert-info alert-sm mb-3'; // Change to info style
+                    }
+                    
+                    // Make the file input optional for counter payments
+                    const fileInput = idUploadSection.querySelector('#discount_id_proof');
+                    if (fileInput) {
+                        fileInput.removeAttribute('required');
+                    }
+                } else {
+                    // No payment method selected yet, but discount is selected
+                    idUploadSection.style.display = 'block';
+                    
+                    // Show general message
+                    const alertMessage = idUploadSection.querySelector('.alert-warning, .alert-info');
+                    if (alertMessage) {
+                        alertMessage.innerHTML = `
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Note:</strong> ID verification required for discount. Upload needed for online payments, or present at terminal for counter payments.
+                        `;
+                        alertMessage.className = 'alert alert-info alert-sm mb-3';
+                    }
+                }
+            } else {
+                // No discount selected - hide ID upload section
+                idUploadSection.style.display = 'none';
+            }
+        }
+        
+        // Function to update fare with discount
+        function updateFareWithDiscount(discountType) {
+            const fareElement = document.getElementById('summary_fare');
+            if (!fareElement) return;
+            
+            const fareText = fareElement.textContent;
+            const fareMatch = fareText.match(/[\d,]+(\.\d+)?/);
+            
+            if (!fareMatch) return;
+            
+            const currentFare = parseFloat(fareMatch[0].replace(/,/g, ''));
+            
+            // Store the original fare if not already stored
+            if (window.originalFare === undefined || window.originalFare === 0) {
+                window.originalFare = currentFare;
+            }
+            
+            // Calculate discount
+            let discountedFare = window.originalFare;
+            let discountLabel = '';
+            
+            if (discountType === 'student' || discountType === 'senior' || discountType === 'pwd') {
+                // Apply 20% discount
+                discountedFare = window.originalFare * 0.8;
+                discountLabel = ' (20% Discount Applied)';
+            }
+            
+            // Update hidden discount type field
+            const hiddenDiscountInput = document.getElementById('summary_discount_type');
+            if (hiddenDiscountInput) {
+                hiddenDiscountInput.value = discountType;
+            } else {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.id = 'summary_discount_type';
+                input.name = 'discount_type';
+                input.value = discountType;
+                document.getElementById('bookingForm').appendChild(input);
+            }
+            
+            // Update the fare display
+            fareElement.innerHTML = `₱${discountedFare.toFixed(2)}${discountLabel}`;
+            
+            // Update fare amount labels in payment instructions
+            document.querySelectorAll('.fare-amount').forEach(function(el) {
+                el.textContent = discountedFare.toFixed(2);
+            });
+            
+            // Add highlight effect
+            fareElement.classList.add('fare-updated');
+            setTimeout(() => {
+                fareElement.classList.remove('fare-updated');
+            }, 2000);
+        }
+
+        // Handle tab navigation preservation
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add CSS styling for booked seats with striped pattern
+            const style = document.createElement('style');
+            style.textContent = `
+                .back-row-five {
+                    justify-content: center !important;
+                    padding-right: 25px;
+                }
+                
+                .back-row-five .seat {
+                    margin-left: 3px;
+                    margin-right: 3px;
+                }
+                
+                .seat.booked {
+                    background-color: #dc3545;
+                    opacity: 0.7;
+                    position: relative;
+                    overflow: hidden;
+                }
+                
+                .seat.booked::after {
+                    content: "";
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: repeating-linear-gradient(
+                        45deg,
+                        rgba(0, 0, 0, 0.1),
+                        rgba(0, 0, 0, 0.1) 5px,
+                        rgba(0, 0, 0, 0.2) 5px,
+                        rgba(0, 0, 0, 0.2) 10px
+                    );
+                }
+                
+                .payment-proof-upload {
+                    transition: opacity 0.3s ease;
+                    padding: 10px;
+                    border-radius: 5px;
+                    background-color: rgba(0,0,0,0.02);
+                }
+                
+                .payment-proof-upload.active-upload {
+                    background-color: rgba(0,123,255,0.05);
+                }
+                
+                .payment-preview {
+                    transition: all 0.3s ease;
+                }
+                
+                .payment-preview img {
+                    object-fit: cover;
+                }
+                
+                .fare-updated {
+                    animation: fareUpdate 1s ease;
+                }
+                
+                @keyframes fareUpdate {
+                    0% { background-color: transparent; }
+                    50% { background-color: rgba(255, 193, 7, 0.3); }
+                    100% { background-color: transparent; }
+                }
+                
+                @media (max-width: 768px) {
+                    .seat-row {
+                        flex-wrap: wrap;
+                    }
+                    
+                    .back-row-five {
+                        padding-right: 0;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+            
+            // Get the active tab from URL if present
+            const urlParams = new URLSearchParams(window.location.search);
+            const tab = urlParams.get('tab');
+            
+            if (tab === 'fleet') {
+                // Activate fleet tab
+                document.getElementById('view-fleet-tab').click();
+            }
+            
+            // Add tab parameter to form submission
+            const routeForm = document.getElementById('routeForm');
+            if (routeForm) {
+                routeForm.addEventListener('submit', function() {
+                    const activeTab = document.querySelector('.nav-link.active');
+                    if (activeTab && activeTab.getAttribute('id') === 'view-fleet-tab') {
+                        const hiddenInput = document.createElement('input');
+                        hiddenInput.type = 'hidden';
+                        hiddenInput.name = 'tab';
+                        hiddenInput.value = 'fleet';
+                        this.appendChild(hiddenInput);
+                    }
+                });
+            }
+            
+            // Initialize tooltips
+            const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+            [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+            
+            // Show booking success notification with animation
+            <?php if ($booking_success): ?>
+            setTimeout(() => {
+                const successAlert = document.querySelector('.alert-success');
+                if (successAlert) {
+                    successAlert.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, 300);
+            <?php endif; ?>
+            
+            // Create seat info elements if they don't exist
+            const summaryCard = document.querySelector('.ticket-summary-card .card-body');
+            if (summaryCard) {
+                // Add seat availability info elements if they don't exist
+                if (!document.getElementById('summary_seat_info')) {
+                    const seatInfoDiv = document.createElement('div');
+                    seatInfoDiv.className = 'mb-3';
+                    seatInfoDiv.innerHTML = `
+                        <label class="form-label fw-bold">Seat Availability</label>
+                        <div id="summary_seat_info" class="mb-2">
+                            <span class="badge bg-secondary">Not selected</span>
+                        </div>
+                        <div id="seat-availability-visual">
+                            <div class="progress mb-2" style="height: 10px;">
+                                <div class="progress-bar bg-secondary" role="progressbar" 
+                                    style="width: 100%"
+                                    aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                </div>
+                            </div>
+                            <div class="small text-center text-muted">
+                                Select a bus to see seat availability
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Insert after the route information
+                    const routeElement = summaryCard.querySelector('#summary_route');
+                    if (routeElement) {
+                        routeElement.parentNode.parentNode.insertBefore(seatInfoDiv, routeElement.parentNode.nextSibling);
+                    }
+                }
+                
+                // Make sure payment method display exists
+                if (!document.getElementById('summary_payment_display')) {
+                    const paymentDisplayDiv = document.createElement('div');
+                    paymentDisplayDiv.className = 'mb-3';
+                    paymentDisplayDiv.innerHTML = `
+                        <label class="form-label fw-bold">Payment Method</label>
+                        <div class="form-control bg-light" id="summary_payment_display">Not selected</div>
+                    `;
+                    
+                    // Insert before the confirm button
+                    const confirmBtn = summaryCard.querySelector('#confirmBookingBtn');
+                    if (confirmBtn) {
+                        confirmBtn.parentNode.parentNode.insertBefore(paymentDisplayDiv, confirmBtn.parentNode);
+                    }
+                }
+            }
+            
+            // Add seat selection guide if it doesn't exist
+            const seatSelectionCard = document.querySelector('#seat-selection .card-body');
+            if (seatSelectionCard && !seatSelectionCard.querySelector('.seat-selection-guide')) {
+                const seatMapContainer = document.querySelector('.seat-map-container');
+                if (seatMapContainer) {
+                    const guideElement = document.createElement('div');
+                    guideElement.className = 'alert alert-info mb-3 seat-selection-guide';
+                    guideElement.innerHTML = `
+                        <div class="d-flex align-items-center">
+                            <div class="me-3">
+                                <i class="fas fa-info-circle fa-2x text-info"></i>
+                            </div>
+                            <div>
+                                <h6 class="alert-heading mb-1">Seat Selection Guide</h6>
+                                <p class="mb-0 small">The seats shown in <span class="text-success fw-bold">green</span> are available for booking, while the seats in <span class="text-danger fw-bold">red</span> are already booked. The back row has 6 seats. Please select one seat for your journey.</p>
+                            </div>
+                        </div>
+                    `;
+                    seatSelectionCard.insertBefore(guideElement, seatMapContainer);
+                }
+            }
+            
+            // Add payment method explanation if it doesn't exist
+            const paymentSelectionCard = document.querySelector('#payment-selection .card-body');
+            if (paymentSelectionCard && !paymentSelectionCard.querySelector('.payment-selection-guide')) {
+                const paymentMethods = document.querySelector('.payment-methods');
+                if (paymentMethods) {
+                    const guideElement = document.createElement('div');
+                    guideElement.className = 'alert alert-info mb-3 payment-selection-guide';
+                    guideElement.innerHTML = `
+                        <div class="d-flex align-items-center">
+                            <div class="me-3">
+                                <i class="fas fa-info-circle fa-2x text-info"></i>
+                            </div>
+                            <div>
+                                <h6 class="alert-heading mb-1">Payment Method Guide</h6>
+                                <p class="mb-0 small">Select your preferred payment method. Over-the-counter lets you pay at the terminal before your trip, while online options like GCash and PayMaya allow for immediate payment. Click on a payment method to see more details.</p>
+                            </div>
+                        </div>
+                    `;
+                    paymentSelectionCard.insertBefore(guideElement, paymentMethods);
+                }
+            }
+
+            // Initialize discount ID proof upload functionality
+            setupDiscountIdUpload();
+            
+            // File upload handling for both payment methods
+            setupFileUpload('gcash_payment_proof');
+            setupFileUpload('paymaya_payment_proof');
+            
+            // Update the booking form to include file upload
+            const bookingForm = document.getElementById('bookingForm');
+            if (bookingForm) {
+                bookingForm.setAttribute('enctype', 'multipart/form-data');
+                
+                // Add a hidden input for the payment proof
+                if (!document.getElementById('payment_proof_file')) {
+                    const paymentProofInput = document.createElement('input');
+                    paymentProofInput.type = 'hidden';
+                    paymentProofInput.id = 'payment_proof_file';
+                    paymentProofInput.name = 'payment_proof_file';
+                    bookingForm.appendChild(paymentProofInput);
+                }
+            }
+            
+            // Handle discount selection changes
+            const discountOptions = document.querySelectorAll('.discount-option');
             discountOptions.forEach(function(option) {
                 option.addEventListener('change', function() {
                     const discountType = this.value;
                     
-                    // Show ID upload section for all discount types except regular
-                    if (discountType !== 'regular') {
-                        idUploadSection.style.display = 'block';
-                    } else {
-                        idUploadSection.style.display = 'none';
-                    }
+                    // Update ID upload visibility based on discount and payment method
+                    updateIdUploadVisibility();
                     
                     // Update fare amount with discount
                     updateFareWithDiscount(discountType);
                 });
             });
             
-            // Function to update fare with discount
-            function updateFareWithDiscount(discountType) {
-                const fareElement = document.getElementById('summary_fare');
-                if (!fareElement) return;
-                
-                const fareText = fareElement.textContent;
-                const fareMatch = fareText.match(/[\d,]+(\.\d+)?/);
-                
-                if (!fareMatch) return;
-                
-                const currentFare = parseFloat(fareMatch[0].replace(/,/g, ''));
-                
-                // Store the original fare if not already stored
-                if (originalFare === 0) {
-                    originalFare = currentFare;
-                }
-                
-                // Calculate discount
-                let discountedFare = originalFare;
-                let discountLabel = '';
-                
-                if (discountType === 'student' || discountType === 'senior' || discountType === 'pwd') {
-                    // Apply 20% discount
-                    discountedFare = originalFare * 0.8;
-                    discountLabel = ' (20% Discount Applied)';
-                }
-                
-                // Update hidden discount type field
-                const hiddenDiscountInput = document.getElementById('summary_discount_type');
-                if (hiddenDiscountInput) {
-                    hiddenDiscountInput.value = discountType;
-                } else {
-                    const input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.id = 'summary_discount_type';
-                    input.name = 'discount_type';
-                    input.value = discountType;
-                    document.getElementById('bookingForm').appendChild(input);
-                }
-                
-                // Update the fare display
-                fareElement.innerHTML = `₱${discountedFare.toFixed(2)}${discountLabel}`;
-                
-                // Update fare amount labels in payment instructions
-                document.querySelectorAll('.fare-amount').forEach(function(el) {
-                    el.textContent = discountedFare.toFixed(2);
+            // Handle payment method selection changes for discount visibility
+            const paymentOptions = document.querySelectorAll('.payment-method-option');
+            paymentOptions.forEach(function(option) {
+                option.addEventListener('click', function() {
+                    const paymentMethod = this.getAttribute('data-payment');
+                    
+                    // Hide all payment proof upload sections
+                    document.querySelectorAll('.payment-proof-upload').forEach(function(upload) {
+                        upload.classList.remove('active-upload');
+                        upload.style.opacity = '0.5';
+                    });
+                    
+                    // Show only the active payment method's upload section
+                    const activeUpload = this.querySelector('.payment-proof-upload');
+                    if (activeUpload) {
+                        activeUpload.classList.add('active-upload');
+                        activeUpload.style.opacity = '1';
+                    }
                 });
+            });
+            
+            // Initialize form validation with updated logic
+            if (bookingForm) {
+                const originalSubmitHandler = bookingForm.onsubmit;
                 
-                // Add highlight effect
-                fareElement.classList.add('fare-updated');
-                setTimeout(() => {
-                    fareElement.classList.remove('fare-updated');
-                }, 2000);
+                bookingForm.onsubmit = function(e) {
+                    // Check if bus is selected
+                    if (!selectedBusId) {
+                        e.preventDefault();
+                        alert('Please select a bus first');
+                        document.getElementById('bus-selection').scrollIntoView({ behavior: 'smooth' });
+                        return false;
+                    }
+                    
+                    // Check if seat is selected
+                    if (!selectedSeatNumber) {
+                        e.preventDefault();
+                        alert('Please select a seat');
+                        document.getElementById('seat-selection').scrollIntoView({ behavior: 'smooth' });
+                        return false;
+                    }
+                    
+                    // Check if payment method is selected
+                    if (!selectedPaymentMethod) {
+                        e.preventDefault();
+                        alert('Please select a payment method');
+                        document.getElementById('payment-selection').scrollIntoView({ behavior: 'smooth' });
+                        return false;
+                    }
+                    
+                    // Get selected payment method and discount
+                    const paymentMethod = document.querySelector('input[name="payment_method"]:checked');
+                    const selectedDiscount = document.querySelector('input[name="discount_type"]:checked');
+                    
+                    if (!paymentMethod) {
+                        e.preventDefault();
+                        alert('Please select a payment method');
+                        document.getElementById('payment-selection').scrollIntoView({ behavior: 'smooth' });
+                        return false;
+                    }
+                    
+                    // Check discount ID proof ONLY for online payment methods (gcash/paymaya)
+                    // For counter payments, ID verification happens at the terminal
+                    if (selectedDiscount && selectedDiscount.value !== 'regular' && 
+                        (paymentMethod.value === 'gcash' || paymentMethod.value === 'paymaya')) {
+                        const discountIdInput = document.getElementById('discount_id_proof');
+                        if (!discountIdInput || !discountIdInput.files || discountIdInput.files.length === 0) {
+                            e.preventDefault();
+                            alert(`Please upload your ${selectedDiscount.value} ID for verification when paying online with ${paymentMethod.value.toUpperCase()}.`);
+                            const idUploadSection = document.getElementById('id-upload-section');
+                            if (idUploadSection) {
+                                idUploadSection.scrollIntoView({ behavior: 'smooth' });
+                            }
+                            return false;
+                        }
+                    }
+                    
+                    // Check if payment proof is required (only for online payments)
+                    if (paymentMethod.value === 'gcash' || paymentMethod.value === 'paymaya') {
+                        const fileInput = document.getElementById(paymentMethod.value + '_payment_proof');
+                        
+                        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                            e.preventDefault();
+                            alert('Please upload a payment proof screenshot for ' + paymentMethod.value.toUpperCase());
+                            if (fileInput) fileInput.focus();
+                            return false;
+                        }
+                        
+                        // Create FormData to properly include all files
+                        const formData = new FormData(bookingForm);
+                        
+                        // Add payment proof file
+                        formData.append(paymentMethod.value + '_payment_proof', fileInput.files[0]);
+                        
+                        // Add discount ID proof if applicable AND file is uploaded (only for online payments)
+                        if (selectedDiscount && selectedDiscount.value !== 'regular') {
+                            const discountIdInput = document.getElementById('discount_id_proof');
+                            if (discountIdInput && discountIdInput.files.length > 0) {
+                                formData.append('discount_id_proof', discountIdInput.files[0]);
+                            }
+                        }
+                        
+                        // Stop the normal form submission
+                        e.preventDefault();
+                        
+                        // Show loading overlay
+                        document.body.insertAdjacentHTML('beforeend', `
+                            <div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                                background-color: rgba(0,0,0,0.7); z-index: 9999; display: flex; 
+                                justify-content: center; align-items: center;">
+                                <div class="card p-4 text-center">
+                                    <div class="spinner-border text-primary mb-3" role="status">
+                                        <span class="visually-hidden">Processing booking and uploading proof...</span>
+                                    </div>
+                                    <h5>Processing your booking...</h5>
+                                    <p>Uploading payment proof. Please wait, this may take a few moments.</p>
+                                </div>
+                            </div>
+                        `);
+                        
+                        // Submit the form with FormData using fetch
+                        fetch(bookingForm.action, {
+                            method: 'POST',
+                            body: formData,
+                        })
+                        .then(response => {
+                            if (response.redirected) {
+                                window.location.href = response.url;
+                            } else {
+                                window.location.reload();
+                            }
+                        })
+                        .catch(error => {
+                            const loadingOverlay = document.getElementById('loading-overlay');
+                            if (loadingOverlay) loadingOverlay.remove();
+                            alert('Error submitting booking: ' + error.message);
+                            console.error('Error:', error);
+                        });
+                        
+                        return false;
+                    }
+                    
+                    // For counter payment (no file upload needed), use normal form submission
+                    // Note: For counter payments with discount, verification happens at the terminal
+                    const loadingMessage = (selectedDiscount && selectedDiscount.value !== 'regular') 
+                        ? 'Processing your discounted booking...' 
+                        : 'Processing your booking...';
+                        
+                    document.body.insertAdjacentHTML('beforeend', `
+                        <div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                            background-color: rgba(0,0,0,0.7); z-index: 9999; display: flex; 
+                            justify-content: center; align-items: center;">
+                            <div class="card p-4 text-center">
+                                <div class="spinner-border text-primary mb-3" role="status">
+                                    <span class="visually-hidden">${loadingMessage}</span>
+                                </div>
+                                <h5>${loadingMessage}</h5>
+                                ${selectedDiscount && selectedDiscount.value !== 'regular' 
+                                    ? '<p>Remember to bring your valid ID to the terminal for discount verification.</p>' 
+                                    : '<p>Please wait, this may take a few moments.</p>'}
+                            </div>
+                        </div>
+                    `);
+                    
+                    // Allow normal form submission for counter payments
+                    return true;
+                };
             }
+            
+            // Initial call to set correct visibility on page load
+            updateIdUploadVisibility();
         });
 
+        // Handle selected trip filtering
         document.addEventListener("DOMContentLoaded", function () {
             const selectedTrip = "<?php echo $selected_trip; ?>";
             if (selectedTrip) {
@@ -2899,197 +3002,14 @@ if ($current_bus_id > 0) {
             }
         });
 
-        // Handle discount type changes
-        document.addEventListener('DOMContentLoaded', function() {
-            // Discount ID Proof Handling
-            const discountTypeRadios = document.querySelectorAll('input[name="discount_type"]');
-            const discountProofSection = document.getElementById('discount-proof-section');
-            const discountIdInput = document.getElementById('discount_id_proof');
-            const idPreview = document.getElementById('id-preview');
-            
-            discountTypeRadios.forEach(radio => {
-                radio.addEventListener('change', function() {
-                    document.getElementById('summary_discount_type').value = this.value;
-                    if (this.value !== 'regular') {
-                        discountProofSection.style.display = 'block';
-                    } else {
-                        discountProofSection.style.display = 'none';
-                        discountIdInput.value = '';
-                        idPreview.classList.add('d-none');
-                    }
-                });
-            });
-            
-            // Discount ID Proof Preview
-            discountIdInput.addEventListener('change', function(e) {
-                const file = e.target.files[0];
-                if (!file) return;
-                
-                // Validate file
-                const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
-                if (!validTypes.includes(file.type)) {
-                    showError('Please upload a JPG, PNG, GIF, or PDF file for your ID proof.');
-                    this.value = '';
-                    return;
-                }
-                
-                if (file.size > 5 * 1024 * 1024) { // 5MB
-                    showError('File size exceeds 5MB. Please upload a smaller file.');
-                    this.value = '';
-                    return;
-                }
-                
-                // Show preview
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    idPreview.classList.remove('d-none');
-                    
-                    if (file.type.includes('image')) {
-                        document.getElementById('id-preview-image').src = e.target.result;
-                        document.getElementById('id-preview-image').style.display = 'block';
-                        document.getElementById('id-preview-pdf').style.display = 'none';
-                    } else {
-                        document.getElementById('id-preview-image').style.display = 'none';
-                        document.getElementById('id-preview-pdf').style.display = 'block';
-                    }
-                    
-                    document.querySelector('.id-preview-filename').textContent = file.name;
-                };
-                reader.readAsDataURL(file);
-            });
-            
-            // Payment Proof Handling (shown when payment method requires it)
-            const paymentMethodRadios = document.querySelectorAll('input[name="payment_method"]');
-            const paymentProofSection = document.getElementById('payment-proof-section');
-            const paymentProofInput = document.getElementById('payment_proof');
-            const paymentPreview = document.getElementById('payment-preview');
-            
-            paymentMethodRadios.forEach(radio => {
-                radio.addEventListener('change', function() {
-                    document.getElementById('summary_payment_method').value = this.value;
-                    if (this.value === 'gcash' || this.value === 'paymaya') {
-                        paymentProofSection.style.display = 'block';
-                    } else {
-                        paymentProofSection.style.display = 'none';
-                        paymentProofInput.value = '';
-                        paymentPreview.classList.add('d-none');
-                    }
-                });
-            });
-            
-            // Payment Proof Preview
-            paymentProofInput.addEventListener('change', function(e) {
-                const file = e.target.files[0];
-                if (!file) return;
-                
-                // Validate file
-                if (!file.type.includes('image')) {
-                    showError('Please upload an image file (JPG or PNG) for payment proof.');
-                    this.value = '';
-                    return;
-                }
-                
-                if (file.size > 5 * 1024 * 1024) { // 5MB
-                    showError('File size exceeds 5MB. Please upload a smaller image.');
-                    this.value = '';
-                    return;
-                }
-                
-                // Show preview
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    paymentPreview.classList.remove('d-none');
-                    document.getElementById('payment-preview-image').src = e.target.result;
-                    document.querySelector('.payment-preview-filename').textContent = file.name;
-                };
-                reader.readAsDataURL(file);
-            });
-            
-            // Form submission
-            document.getElementById('bookingForm').addEventListener('submit', function(e) {
-                // Validate discount proof if needed
-                const discountType = document.getElementById('summary_discount_type').value;
-                if (discountType !== 'regular' && !discountIdInput.files.length) {
-                    e.preventDefault();
-                    showError('Please upload your discount ID proof');
-                    return false;
-                }
-                
-                // Validate payment proof if needed
-                const paymentMethod = document.getElementById('summary_payment_method').value;
-                if ((paymentMethod === 'gcash' || paymentMethod === 'paymaya') && !paymentProofInput.files.length) {
-                    e.preventDefault();
-                    showError('Please upload your payment proof');
-                    return false;
-                }
-                
-                // Show loading state
-                document.getElementById('submit-text').classList.add('d-none');
-                document.getElementById('submit-spinner').classList.remove('d-none');
-            });
-            
-            // Helper function to show errors
-            function showError(message) {
-                const errorDiv = document.getElementById('booking-errors');
-                errorDiv.textContent = message;
-                errorDiv.classList.remove('d-none');
-                errorDiv.scrollIntoView({ behavior: 'smooth' });
-            }
-            
-            // Set up preview button handlers
-            document.querySelector('.change-id-preview')?.addEventListener('click', () => discountIdInput.click());
-            document.querySelector('.remove-id-preview')?.addEventListener('click', () => {
-                discountIdInput.value = '';
-                idPreview.classList.add('d-none');
-            });
-            
-            document.querySelector('.change-payment-preview')?.addEventListener('click', () => paymentProofInput.click());
-            document.querySelector('.remove-payment-preview')?.addEventListener('click', () => {
-                paymentProofInput.value = '';
-                paymentPreview.classList.add('d-none');
-            });
-        });
-
-        // Add CSS styles for payment proof upload sections
-        const proofUploadStyles = document.createElement('style');
-        proofUploadStyles.textContent = `
-            .payment-proof-upload {
-                transition: opacity 0.3s ease;
-                padding: 10px;
-                border-radius: 5px;
-                background-color: rgba(0,0,0,0.02);
-            }
-            
-            .payment-proof-upload.active-upload {
-                background-color: rgba(0,123,255,0.05);
-            }
-            
-            .payment-preview {
-                transition: all 0.3s ease;
-            }
-            
-            .payment-preview img {
-                object-fit: cover;
-            }
-            
-            .fare-updated {
-                animation: fareUpdate 1s ease;
-            }
-            
-            @keyframes fareUpdate {
-                0% { background-color: transparent; }
-                50% { background-color: rgba(255, 193, 7, 0.3); }
-                100% { background-color: transparent; }
-            }
-        `;
-        document.head.appendChild(proofUploadStyles);
-        
         // Initialize: Trigger origin change to set initial disabled states
-        const originSelect = document.getElementById('origin');
-        if (originSelect.value) {
-            const event = new Event('change');
-            originSelect.dispatchEvent(event);
-        }
+        document.addEventListener('DOMContentLoaded', function() {
+            const originSelect = document.getElementById('origin');
+            if (originSelect && originSelect.value) {
+                const event = new Event('change');
+                originSelect.dispatchEvent(event);
+            }
+        });
     </script>
 </body>
 </html>
