@@ -389,6 +389,27 @@ function getStatusClass($status) {
             margin-top: 25px;
         }
         
+        .qr-code-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .qr-code-item {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .qr-code-item h6 {
+            color: #007bff;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+        }
+        
         .important-notes {
             background: linear-gradient(135deg, #fff3cd, #ffeaa7);
             border: 1px solid #ffeaa7;
@@ -492,6 +513,10 @@ function getStatusClass($status) {
             
             .seat-number {
                 margin-top: 10px;
+            }
+            
+            .qr-code-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -809,16 +834,40 @@ function getStatusClass($status) {
                     </div>
                 </div>
 
-                <!-- QR Code Section -->
+                <!-- QR Code Section - Updated to show individual ticket QR codes -->
                 <div class="qr-code-section">
                     <h6 class="mb-3">
-                        <i class="fas fa-qrcode me-2"></i>Booking QR Code
+                        <i class="fas fa-qrcode me-2"></i>Booking QR Codes
                     </h6>
-                    <div id="qrcode" class="d-inline-block"></div>
-                    <p class="mt-3 text-muted">
+                    <p class="text-muted mb-3">
                         <i class="fas fa-mobile-alt me-1"></i>
-                        Show this QR code to the conductor when boarding the bus
+                        Show these QR codes to the conductor when boarding the bus
                     </p>
+                    
+                    <?php if (count($bookings) === 1): ?>
+                        <!-- Single QR Code for single booking -->
+                        <div class="qr-code-item mx-auto" style="max-width: 250px;">
+                            <h6>Booking Reference</h6>
+                            <div id="qrcode-single" class="d-inline-block mb-2"></div>
+                            <div class="small text-muted">
+                                Ref: <?php echo htmlspecialchars($bookings[0]['booking_reference']); ?>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <!-- Multiple QR Codes for group booking -->
+                        <div class="qr-code-grid">
+                            <?php foreach ($bookings as $index => $booking): ?>
+                            <div class="qr-code-item">
+                                <h6>Seat <?php echo $booking['seat_number']; ?> - <?php echo htmlspecialchars($booking['passenger_name']); ?></h6>
+                                <div id="qrcode-<?php echo $index; ?>" class="d-inline-block mb-2"></div>
+                                <div class="small text-muted">
+                                    Ref: <?php echo htmlspecialchars($booking['booking_reference']); ?>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        
+                    <?php endif; ?>
                 </div> 
 
                 <!-- Important Notes -->
@@ -901,137 +950,237 @@ function getStatusClass($status) {
         <?php endif; ?>
     </div>
 
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <!-- Use a different QR code library that's more reliable -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
     <script>
-        // Generate comprehensive QR Code with booking information
-        document.addEventListener('DOMContentLoaded', function() {
-            const bookingData = <?php echo json_encode($bookings); ?>;
-            const busInfo = <?php echo json_encode($bus_info); ?>;
-            const routeInfo = <?php echo json_encode($route_info); ?>;
-            
-            const qrData = {
-                type: 'ceres_bus_booking',
-                version: '2.0',
-                bookings: bookingData.map(booking => ({
-                    reference: booking.booking_reference,
-                    seat: booking.seat_number,
-                    passenger: booking.passenger_name || (booking.first_name + ' ' + booking.last_name),
-                    discount: booking.discount_type,
-                    fare: booking.final_fare
-                })),
-                trip: {
-                    date: bookingData[0].booking_date,
-                    origin: routeInfo.origin,
-                    destination: routeInfo.destination,
-                    departure: busInfo.departure_time,
-                    bus_plate: busInfo.plate_number,
-                    trip_number: busInfo.trip_number
-                },
-                totals: {
-                    passengers: bookingData.length,
-                    total_fare: <?php echo $total_fare; ?>,
-                    total_savings: <?php echo $total_savings; ?>
-                },
-                verification: {
-                    generated_at: new Date().toISOString(),
-                    receipt_url: window.location.href
-                }
-                <?php if (!empty($bookings[0]['group_booking_id'])): ?>
-                ,group_id: '<?php echo htmlspecialchars($bookings[0]['group_booking_id']); ?>'
-                <?php endif; ?>
-            };
-            
-            QRCode.toCanvas(document.getElementById('qrcode'), JSON.stringify(qrData), {
-                width: 200,
-                height: 200,
-                margin: 2,
-                color: {
-                    dark: '#000000',
-                    light: '#FFFFFF'
-                },
-                errorCorrectionLevel: 'M'
-            }, function (error) {
-                if (error) {
-                    console.error('QR Code generation failed:', error);
-                    document.getElementById('qrcode').innerHTML = 
-                        '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>QR Code could not be generated</div>';
-                } else {
-                    console.log('QR Code generated successfully');
-                }
-            });
-        });
-
-        // Download receipt as PDF (using browser's print to PDF)
-        function downloadReceipt() {
-            window.print();
-        }
-
-        // Share receipt functionality
-        function shareReceipt(method) {
-            const receiptUrl = window.location.href;
-            const shareText = `My bus booking receipt for <?php echo htmlspecialchars($route_info['origin']); ?> to <?php echo htmlspecialchars($route_info['destination']); ?> on <?php echo date('M d, Y', strtotime($bookings[0]['booking_date'])); ?>`;
-            
-            switch(method) {
-                case 'email':
-                    const emailSubject = encodeURIComponent('Bus Booking Receipt - ISAT-U Ceres');
-                    const emailBody = encodeURIComponent(`${shareText}\n\nReceipt: ${receiptUrl}`);
-                    window.open(`mailto:?subject=${emailSubject}&body=${emailBody}`);
-                    break;
-                    
-                case 'sms':
-                    const smsText = encodeURIComponent(`${shareText} ${receiptUrl}`);
-                    window.open(`sms:?body=${smsText}`);
-                    break;
-                    
-                case 'copy':
-                    navigator.clipboard.writeText(receiptUrl).then(() => {
-                        alert('Receipt link copied to clipboard!');
-                    }).catch(() => {
-                        // Fallback for older browsers
-                        prompt('Copy this link:', receiptUrl);
-                    });
-                    break;
-            }
-        }
-
-        // Auto-focus and scroll to important elements
-        document.addEventListener('DOMContentLoaded', function() {
-            // Highlight any pending verifications
-            const pendingElements = document.querySelectorAll('.pending-verification');
-            if (pendingElements.length > 0) {
-                console.log('Found pending verifications - user should be aware');
+    // Alternative QR Code generation using qrcode-generator library
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('Starting QR code generation...');
+        
+        const bookingData = <?php echo json_encode($bookings); ?>;
+        console.log('Booking data:', bookingData);
+        
+        // Function to create QR code using qrcode-generator library
+        function createQRCode(text, containerId, size = 150) {
+            const container = document.getElementById(containerId);
+            if (!container) {
+                console.error(`Container ${containerId} not found`);
+                return false;
             }
             
-            // Add click handlers for verification status elements
-            document.querySelectorAll('.verification-status').forEach(element => {
-                element.addEventListener('click', function() {
-                    const status = this.querySelector('.verification-icon').classList;
-                    if (status.contains('pending-verification')) {
-                        alert('This verification is still pending. Please check back later or contact support if needed.');
-                    } else if (status.contains('verified')) {
-                        alert('This has been successfully verified.');
-                    }
-                });
+            try {
+                // Create QR code
+                const qr = qrcode(0, 'M'); // type 0 (auto), error correction level M
+                qr.addData(text);
+                qr.make();
                 
-                // Add hover effect
-                element.style.cursor = 'pointer';
-                element.title = 'Click for verification details';
-            });
-        });
-
-        // Print event listener
-        window.addEventListener('beforeprint', function() {
-            console.log('Receipt being printed/downloaded');
-        });
-
-        // Page visibility API to track when user returns to check status
-        document.addEventListener('visibilitychange', function() {
-            if (!document.hidden) {
-                // Page became visible - could check for verification updates here
-                console.log('Receipt page became visible - user returned');
+                // Create image
+                const qrImage = qr.createImgTag(4, 8); // cell size 4, margin 8
+                container.innerHTML = qrImage;
+                
+                // Style the image
+                const img = container.querySelector('img');
+                if (img) {
+                    img.style.width = size + 'px';
+                    img.style.height = size + 'px';
+                    img.style.border = '1px solid #ddd';
+                    img.style.borderRadius = '8px';
+                }
+                
+                console.log(`QR code generated successfully for: ${text}`);
+                return true;
+            } catch (error) {
+                console.error(`QR generation failed for ${text}:`, error);
+                container.innerHTML = `
+                    <div class="alert alert-warning p-2 small">
+                        <i class="fas fa-exclamation-triangle"></i> QR Error
+                    </div>
+                `;
+                return false;
             }
+        }
+
+        // Generate individual QR codes for each booking
+        bookingData.forEach((booking, index) => {
+            const containerId = `qrcode-${index}`;
+            const qrData = booking.booking_reference;
+            console.log(`Generating QR for booking ${index}: ${qrData}`);
+            createQRCode(qrData, containerId, 150);
         });
+
+        // Generate single booking QR code (for single bookings)
+        if (bookingData.length === 1) {
+            const qrData = bookingData[0].booking_reference;
+            console.log(`Generating single QR: ${qrData}`);
+            createQRCode(qrData, 'qrcode-single', 200);
+        }
+
+        // Generate group QR code (for multiple bookings)
+        if (bookingData.length > 1 && bookingData[0].group_booking_id) {
+            const groupId = bookingData[0].group_booking_id;
+            console.log(`Generating group QR: ${groupId}`);
+            createQRCode(groupId, 'qrcode-group', 180);
+        }
+    });
+
+    // Alternative fallback using canvas if the above doesn't work
+    function generateQRWithCanvas(text, containerId, size = 150) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        try {
+            // Create canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // Simple QR-like pattern as fallback
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, size, size);
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(10, 10, size-20, size-20);
+            ctx.fillStyle = '#000';
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('REF:', size/2, size/2 - 10);
+            ctx.fillText(text.substring(0, 12), size/2, size/2 + 5);
+            ctx.fillText(text.substring(12), size/2, size/2 + 20);
+            
+            container.appendChild(canvas);
+            console.log(`Fallback QR generated for: ${text}`);
+        } catch (error) {
+            console.error('Canvas fallback failed:', error);
+            container.innerHTML = `
+                <div class="text-center p-3 border">
+                    <strong>Booking Reference:</strong><br>
+                    <code style="font-size: 10px;">${text}</code>
+                </div>
+            `;
+        }
+    }
+
+    // Test function to check if QR generation is working
+    function testQRGeneration() {
+        console.log('Testing QR generation...');
+        const testContainer = document.createElement('div');
+        testContainer.id = 'test-qr';
+        document.body.appendChild(testContainer);
+        
+        if (typeof qrcode === 'undefined') {
+            console.error('QR library not loaded!');
+            alert('QR Code library failed to load. Please refresh the page.');
+            return;
+        }
+        
+        try {
+            const qr = qrcode(0, 'M');
+            qr.addData('TEST-123');
+            qr.make();
+            console.log('QR library is working correctly');
+        } catch (error) {
+            console.error('QR library test failed:', error);
+        }
+        
+        document.body.removeChild(testContainer);
+    }
+
+    // Run test after a short delay
+    setTimeout(testQRGeneration, 1000);
+
+    // Download receipt as PDF (using browser's print to PDF)
+    function downloadReceipt() {
+        window.print();
+    }
+
+    // Share receipt functionality
+    function shareReceipt(method) {
+        const receiptUrl = window.location.href;
+        const shareText = `My bus booking receipt for <?php echo htmlspecialchars($route_info['origin']); ?> to <?php echo htmlspecialchars($route_info['destination']); ?> on <?php echo date('M d, Y', strtotime($bookings[0]['booking_date'])); ?>`;
+        
+        switch(method) {
+            case 'email':
+                const emailSubject = encodeURIComponent('Bus Booking Receipt - ISAT-U Ceres');
+                const emailBody = encodeURIComponent(`${shareText}\n\nReceipt: ${receiptUrl}`);
+                window.open(`mailto:?subject=${emailSubject}&body=${emailBody}`);
+                break;
+                
+            case 'sms':
+                const smsText = encodeURIComponent(`${shareText} ${receiptUrl}`);
+                window.open(`sms:?body=${smsText}`);
+                break;
+                
+            case 'copy':
+                navigator.clipboard.writeText(receiptUrl).then(() => {
+                    alert('Receipt link copied to clipboard!');
+                }).catch(() => {
+                    prompt('Copy this link:', receiptUrl);
+                });
+                break;
+        }
+    }
+
+    // Enhanced functionality
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add click handlers for verification status elements
+        document.querySelectorAll('.verification-status').forEach(element => {
+            element.addEventListener('click', function() {
+                const status = this.querySelector('.verification-icon').classList;
+                if (status.contains('pending-verification')) {
+                    alert('This verification is still pending. Please check back later or contact support if needed.');
+                } else if (status.contains('verified')) {
+                    alert('This has been successfully verified.');
+                }
+            });
+            
+            element.style.cursor = 'pointer';
+            element.title = 'Click for verification details';
+        });
+
+        // Add click to copy functionality for booking references
+        document.querySelectorAll('.ticket-number').forEach(element => {
+            element.addEventListener('click', function() {
+                const refText = this.textContent.split(' - ')[1];
+                if (refText) {
+                    navigator.clipboard.writeText(refText).then(() => {
+                        const originalText = this.innerHTML;
+                        this.innerHTML = '<i class="fas fa-check me-2"></i>Reference Copied!';
+                        this.style.color = '#28a745';
+                        
+                        setTimeout(() => {
+                            this.innerHTML = originalText;
+                            this.style.color = '';
+                        }, 2000);
+                    }).catch(() => {
+                        prompt('Copy booking reference:', refText);
+                    });
+                }
+            });
+            
+            element.style.cursor = 'pointer';
+            element.title = 'Click to copy booking reference';
+        });
+    });
+
+    // Debug function - remove after testing
+    function debugQRCodes() {
+        console.log('=== QR CODE DEBUG INFO ===');
+        console.log('QR Library loaded:', typeof qrcode !== 'undefined');
+        console.log('QR containers found:', document.querySelectorAll('[id^="qrcode-"]').length);
+        console.log('Booking data available:', <?php echo json_encode(count($bookings)); ?> + ' bookings');
+        
+        // List all QR containers
+        document.querySelectorAll('[id^="qrcode-"]').forEach(container => {
+            console.log(`Container ${container.id}:`, container.innerHTML.length > 0 ? 'Has content' : 'Empty');
+        });
+    }
+
+    // Call debug function
+    setTimeout(debugQRCodes, 2000);
     </script>
+
+
 </body>
 </html>

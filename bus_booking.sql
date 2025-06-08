@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jun 02, 2025 at 08:34 AM
+-- Generation Time: Jun 08, 2025 at 01:35 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -25,6 +25,87 @@ DELIMITER $$
 --
 -- Procedures
 --
+CREATE DEFINER=`root`@`localhost` PROCEDURE `CreateGroupBooking` (IN `p_user_id` INT, IN `p_bus_id` INT, IN `p_booking_date` DATE, IN `p_payment_method` VARCHAR(50), IN `p_discount_type` VARCHAR(20), IN `p_seat_numbers` TEXT, IN `p_passenger_names` TEXT, IN `p_passenger_contacts` TEXT, OUT `p_group_booking_id` VARCHAR(100), OUT `p_total_amount` DECIMAL(10,2))   BEGIN
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_discount_rate DECIMAL(3,2) DEFAULT 0;
+    DECLARE v_base_fare DECIMAL(10,2);
+    DECLARE v_discount_amount DECIMAL(10,2);
+    DECLARE v_final_fare DECIMAL(10,2);
+    DECLARE v_seat_count INT;
+    DECLARE v_counter INT DEFAULT 1;
+    DECLARE v_seat_number INT;
+    DECLARE v_passenger_name VARCHAR(255);
+    DECLARE v_passenger_contact VARCHAR(20);
+    DECLARE v_booking_ref VARCHAR(100);
+    
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+    
+    START TRANSACTION;
+    
+    -- Generate group booking ID
+    SET p_group_booking_id = CONCAT('GRP-', DATE_FORMAT(NOW(), '%Y%m%d'), '-', UNIX_TIMESTAMP(), '-', p_user_id);
+    
+    -- Get fare from routes
+    SELECT r.fare INTO v_fare
+    FROM buses b
+    JOIN routes r ON b.route_name LIKE CONCAT(r.origin, ' → ', r.destination)
+    WHERE b.id = p_bus_id
+    LIMIT 1;
+    
+    -- Calculate discount rate
+    IF p_discount_type IN ('student', 'senior', 'pwd') THEN
+        SET v_discount_rate = 0.20; -- 20% discount
+    END IF;
+    
+    -- Calculate fare amounts
+    SET v_base_fare = v_fare;
+    SET v_discount_amount = v_base_fare * v_discount_rate;
+    SET v_final_fare = v_base_fare - v_discount_amount;
+    
+    -- Count seats
+    SET v_seat_count = (LENGTH(p_seat_numbers) - LENGTH(REPLACE(p_seat_numbers, ',', '')) + 1);
+    
+    -- Insert bookings for each seat
+    WHILE v_counter <= v_seat_count DO
+        -- Extract seat number
+        SET v_seat_number = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(p_seat_numbers, ',', v_counter), ',', -1) AS UNSIGNED);
+        
+        -- Extract passenger name
+        SET v_passenger_name = TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(p_passenger_names, '|', v_counter), '|', -1));
+        
+        -- Extract passenger contact
+        SET v_passenger_contact = TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(p_passenger_contacts, '|', v_counter), '|', -1));
+        
+        -- Generate individual booking reference
+        SET v_booking_ref = CONCAT('BK-', DATE_FORMAT(NOW(), '%Y%m%d'), '-', UNIX_TIMESTAMP(), '-', v_seat_number);
+        
+        -- Insert booking
+        INSERT INTO bookings (
+            bus_id, user_id, seat_number, booking_date, booking_status,
+            booking_reference, group_booking_id, passenger_name, passenger_contact,
+            payment_method, payment_status, discount_type,
+            base_fare, discount_amount, final_fare, created_at
+        ) VALUES (
+            p_bus_id, p_user_id, v_seat_number, p_booking_date, 'confirmed',
+            v_booking_ref, p_group_booking_id, v_passenger_name, v_passenger_contact,
+            p_payment_method, 
+            CASE WHEN p_payment_method = 'counter' THEN 'pending' ELSE 'awaiting_verification' END,
+            p_discount_type, v_base_fare, v_discount_amount, v_final_fare, NOW()
+        );
+        
+        SET v_counter = v_counter + 1;
+    END WHILE;
+    
+    -- Calculate total amount
+    SET p_total_amount = v_seat_count * v_final_fare;
+    
+    COMMIT;
+END$$
+
 CREATE DEFINER=`root`@`localhost` PROCEDURE `GetBusAvailability` (IN `p_bus_id` INT, IN `p_booking_date` DATE)   BEGIN
     SELECT 
         b.id,
@@ -139,6 +220,21 @@ CREATE DEFINER=`root`@`localhost` FUNCTION `CalculateFareWithDiscount` (`base_fa
     RETURN final_fare;
 END$$
 
+CREATE DEFINER=`root`@`localhost` FUNCTION `CheckSeatsAvailability` (`p_bus_id` INT, `p_date` DATE, `p_seat_numbers` TEXT) RETURNS TINYINT(1) DETERMINISTIC READS SQL DATA BEGIN
+    DECLARE v_booked_count INT DEFAULT 0;
+    
+    -- Count how many of the requested seats are already booked
+    SELECT COUNT(*) INTO v_booked_count
+    FROM bookings
+    WHERE bus_id = p_bus_id
+      AND DATE(booking_date) = p_date
+      AND booking_status = 'confirmed'
+      AND FIND_IN_SET(seat_number, p_seat_numbers) > 0;
+    
+    -- Return TRUE if no seats are booked, FALSE otherwise
+    RETURN v_booked_count = 0;
+END$$
+
 CREATE DEFINER=`root`@`localhost` FUNCTION `GetNextBookingReference` () RETURNS VARCHAR(20) CHARSET utf8mb4 COLLATE utf8mb4_general_ci DETERMINISTIC READS SQL DATA BEGIN
     DECLARE next_ref VARCHAR(20);
     DECLARE next_id INT;
@@ -226,21 +322,43 @@ CREATE TABLE `bookings` (
   `boarding_status` enum('not_boarded','boarded','completed') DEFAULT 'not_boarded',
   `qr_code` varchar(255) DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
-  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `passenger_contact` varchar(20) DEFAULT NULL
+) ;
 
 --
 -- Dumping data for table `bookings`
 --
 
-INSERT INTO `bookings` (`id`, `bus_id`, `user_id`, `seat_number`, `passenger_name`, `booking_date`, `booking_status`, `group_booking_id`, `booking_reference`, `trip_number`, `payment_method`, `payment_status`, `payment_proof`, `payment_proof_status`, `payment_proof_timestamp`, `discount_type`, `discount_id_proof`, `discount_verified`, `discount_verified_by`, `discount_verified_at`, `base_fare`, `discount_amount`, `final_fare`, `cancel_reason`, `cancelled_at`, `cancelled_by`, `refund_status`, `refund_amount`, `refund_note`, `refund_processed_by`, `refund_processed_at`, `special_requests`, `check_in_time`, `boarding_status`, `qr_code`, `created_at`, `updated_at`) VALUES
-(10004, 100, 1000, 2, NULL, '2025-06-02', 'confirmed', NULL, 'BK-20250602-10004', '1st Trip', 'counter', 'pending', NULL, 'not_required', '2025-06-02 03:05:54', 'regular', NULL, 0, NULL, NULL, NULL, 0.00, NULL, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-02 09:05:54', '2025-06-02 09:05:54'),
-(10005, 100, 1000, 1, NULL, '2025-06-02', 'confirmed', NULL, 'BK-20250602-10005', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1748831272_683d0c280c987.jpg', 'uploaded', '2025-06-02 04:27:52', 'student', 'uploads/discount_ids/student_id_1748831272_683d0c280d330.jpg', 0, NULL, NULL, NULL, 0.00, NULL, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-02 10:27:52', '2025-06-02 10:27:52'),
-(10006, 100, 1000, 3, NULL, '2025-06-02', 'confirmed', NULL, 'BK-20250602-10006', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1748832350_683d105eb2bc6.jpg', 'uploaded', '2025-06-02 04:45:50', 'senior', 'uploads/discount_ids/senior_id_1748832350_683d105eb30bf.jpg', 0, NULL, NULL, NULL, 0.00, NULL, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-02 10:45:50', '2025-06-02 10:45:50'),
-(10007, 100, 1000, 4, NULL, '2025-06-02', 'confirmed', NULL, 'BK-20250602-10007', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1748833644_683d156c24134.jpg', 'uploaded', '2025-06-02 05:07:24', 'student', 'uploads/discount_ids/student_id_1748833644_683d156c245a6.jpg', 0, NULL, NULL, NULL, 0.00, NULL, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-02 11:07:24', '2025-06-02 11:07:24'),
-(10008, 100, 1000, 5, NULL, '2025-06-02', 'confirmed', NULL, 'BK-20250602-10008', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1748835465_683d1c890a92a.jpg', 'uploaded', '2025-06-02 05:37:45', 'student', 'uploads/discount_ids/student_id_1748835465_683d1c890ada2.jpg', 0, NULL, NULL, NULL, 0.00, NULL, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-02 11:37:45', '2025-06-02 11:37:45'),
-(10009, 100, 1000, 6, NULL, '2025-06-02', 'confirmed', NULL, 'BK-20250602-10009', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1748841441_683d33e16bb05.jpg', 'uploaded', '2025-06-02 07:17:21', 'student', 'uploads/discount_ids/student_id_1748841441_683d33e16bfce.jpg', 0, NULL, NULL, NULL, 0.00, NULL, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-02 13:17:21', '2025-06-02 13:17:21'),
-(10010, 100, 1000, 7, NULL, '2025-06-02', 'confirmed', NULL, 'BK-20250602-10010', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1748844248_683d3ed8aec0a.jpg', 'uploaded', '2025-06-02 08:04:08', 'student', 'uploads/discount_ids/student_id_1748844248_683d3ed8af09d.jpg', 0, NULL, NULL, NULL, 0.00, NULL, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-02 14:04:08', '2025-06-02 14:04:08');
+INSERT INTO `bookings` (`id`, `bus_id`, `user_id`, `seat_number`, `passenger_name`, `booking_date`, `booking_status`, `group_booking_id`, `booking_reference`, `trip_number`, `payment_method`, `payment_status`, `payment_proof`, `payment_proof_status`, `payment_proof_timestamp`, `discount_type`, `discount_id_proof`, `discount_verified`, `discount_verified_by`, `discount_verified_at`, `base_fare`, `discount_amount`, `final_fare`, `cancel_reason`, `cancelled_at`, `cancelled_by`, `refund_status`, `refund_amount`, `refund_note`, `refund_processed_by`, `refund_processed_at`, `special_requests`, `check_in_time`, `boarding_status`, `qr_code`, `created_at`, `updated_at`, `passenger_contact`) VALUES
+(10098, 100, 1000, 4, 'sdfsdfs', '2025-06-08', 'confirmed', '0', 'BK-20250608-20250608', '1st Trip', 'counter', 'pending', NULL, 'not_required', '2025-06-08 13:17:11', 'student', NULL, 0, NULL, NULL, 175.75, 35.15, 140.60, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-08 19:17:11', '2025-06-08 19:17:11', NULL),
+(10099, 100, 1000, 1, 'dffsdfs', '2025-06-08', 'confirmed', '0', 'BK-20250608-20250608', '1st Trip', 'counter', 'pending', NULL, 'not_required', '2025-06-08 13:23:22', 'student', 'uploads/discount_ids/student_p1_1749381802_684572aa90ff1.jpg', 0, NULL, NULL, 175.75, 35.15, 140.60, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-08 19:23:22', '2025-06-08 19:23:22', NULL),
+(10100, 100, 1000, 2, 'fdfsdfsf', '2025-06-08', 'confirmed', '0', 'BK-20250608-20250608', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1749381840_684572d0d729e.jpg', 'uploaded', '2025-06-08 13:24:00', 'student', 'uploads/discount_ids/student_p1_1749381840_684572d0d77f6.jpg', 0, NULL, NULL, 175.75, 35.15, 140.60, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-08 19:24:00', '2025-06-08 19:24:00', NULL),
+(10101, 100, 1000, 3, 'dsadasd', '2025-06-08', 'confirmed', '0', 'BK-20250608-20250608', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1749381840_684572d0d729e.jpg', 'uploaded', '2025-06-08 13:24:00', 'senior', 'uploads/discount_ids/senior_p2_1749381840_684572d0d7d8a.jpg', 0, NULL, NULL, 175.75, 35.15, 140.60, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-08 19:24:00', '2025-06-08 19:24:00', NULL),
+(10102, 100, 1000, 5, 'dfssdsfs', '2025-06-08', 'confirmed', '0', 'BK-20250608-20250608', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1749382010_6845737ad899d.png', 'uploaded', '2025-06-08 13:26:50', 'student', 'uploads/discount_ids/student_p1_1749382010_6845737ad8f94.jpg', 0, NULL, NULL, 175.75, 35.15, 140.60, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-08 19:26:50', '2025-06-08 19:26:50', NULL),
+(10103, 100, 1000, 6, 'dsdsds', '2025-06-08', 'confirmed', '0', 'BK-20250608-20250608', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1749382010_6845737ad899d.png', 'uploaded', '2025-06-08 13:26:50', 'student', 'uploads/discount_ids/student_p2_1749382010_6845737ad946f.jpg', 0, NULL, NULL, 175.75, 35.15, 140.60, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-08 19:26:50', '2025-06-08 19:26:50', NULL),
+(10104, 100, 1000, 7, 'dsdsd', '2025-06-08', 'confirmed', '0', 'BK-20250608-20250608', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1749382445_6845752d432ef.jpg', 'uploaded', '2025-06-08 13:34:05', 'regular', NULL, 0, NULL, NULL, 175.75, 0.00, 175.75, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-08 19:34:05', '2025-06-08 19:34:05', NULL),
+(10105, 100, 1000, 8, 'fdfdd', '2025-06-08', 'confirmed', '0', 'BK-20250608-20250608', '1st Trip', 'gcash', 'awaiting_verificatio', 'uploads/payment_proofs/gcash_1749382445_6845752d432ef.jpg', 'uploaded', '2025-06-08 13:34:05', 'student', 'uploads/discount_ids/student_p2_1749382445_6845752d43816.jpg', 0, NULL, NULL, 175.75, 35.15, 140.60, NULL, NULL, NULL, 'not_applicable', NULL, NULL, NULL, NULL, NULL, NULL, 'not_boarded', NULL, '2025-06-08 19:34:05', '2025-06-08 19:34:05', NULL);
+
+--
+-- Triggers `bookings`
+--
+DELIMITER $$
+CREATE TRIGGER `calculate_final_fare_insert` BEFORE INSERT ON `bookings` FOR EACH ROW BEGIN
+    IF NEW.base_fare IS NOT NULL THEN
+        SET NEW.final_fare = NEW.base_fare - COALESCE(NEW.discount_amount, 0);
+    END IF;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `update_final_fare` BEFORE UPDATE ON `bookings` FOR EACH ROW BEGIN
+    IF NEW.base_fare IS NOT NULL THEN
+        SET NEW.final_fare = NEW.base_fare - COALESCE(NEW.discount_amount, 0);
+    END IF;
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
@@ -443,6 +561,43 @@ CREATE TABLE `discount_verifications` (
 -- --------------------------------------------------------
 
 --
+-- Stand-in structure for view `group_booking_analytics`
+-- (See below for the actual view)
+--
+CREATE TABLE `group_booking_analytics` (
+);
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `group_booking_summary`
+-- (See below for the actual view)
+--
+CREATE TABLE `group_booking_summary` (
+`group_booking_id` varchar(50)
+,`total_passengers` bigint(21)
+,`total_base_fare` decimal(32,2)
+,`total_discount` decimal(32,2)
+,`total_amount` decimal(32,2)
+,`passengers_list` mediumtext
+,`discount_types` mediumtext
+,`booking_date` date
+,`payment_method` varchar(50)
+,`payment_status` varchar(20)
+,`created_at` datetime
+,`booker_first_name` varchar(50)
+,`booker_last_name` varchar(50)
+,`booker_email` varchar(100)
+,`plate_number` varchar(20)
+,`route_name` varchar(255)
+,`departure_time` time
+,`arrival_time` time
+,`trip_number` varchar(20)
+);
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `payment_verifications`
 --
 
@@ -507,7 +662,6 @@ CREATE TABLE `routes` (
 --
 
 INSERT INTO `routes` (`id`, `origin`, `destination`, `distance`, `estimated_duration`, `fare`, `description`, `status`, `created_at`, `updated_at`) VALUES
-(2, 'ISAT-U Main Campus', 'Iloilo International Airport', 25.00, '45 minutes', 35.00, NULL, 'active', '2025-06-01 18:52:06', '2025-06-01 18:52:06'),
 (9, 'iloilo', 'roxas', 95.00, '2h 30m', 175.75, NULL, 'active', '2025-06-01 20:38:58', '2025-06-01 20:38:58');
 
 -- --------------------------------------------------------
@@ -633,6 +787,24 @@ CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW 
 -- --------------------------------------------------------
 
 --
+-- Structure for view `group_booking_analytics`
+--
+DROP TABLE IF EXISTS `group_booking_analytics`;
+
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `group_booking_analytics`  AS SELECT cast(`group_booking_summary`.`booking_date` as date) AS `travel_date`, count(distinct `group_booking_summary`.`group_booking_id`) AS `total_group_bookings`, count(0) AS `total_group_passengers`, avg(`group_booking_summary`.`total_passengers`) AS `avg_group_size`, max(`group_booking_summary`.`total_passengers`) AS `largest_group_size`, sum(`group_booking_summary`.`total_amount`) AS `total_group_revenue`, sum(`group_booking_summary`.`total_discount`) AS `total_group_discounts`, `group_booking_summary`.`payment_method` AS `payment_method`, `group_booking_summary`.`payment_status` AS `payment_status`, `group_booking_summary`.`discount_type` AS `discount_type` FROM `group_booking_summary` GROUP BY cast(`group_booking_summary`.`booking_date` as date), `group_booking_summary`.`payment_method`, `group_booking_summary`.`payment_status`, `group_booking_summary`.`discount_type` ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `group_booking_summary`
+--
+DROP TABLE IF EXISTS `group_booking_summary`;
+
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `group_booking_summary`  AS SELECT `b`.`group_booking_id` AS `group_booking_id`, count(`b`.`id`) AS `total_passengers`, sum(`b`.`base_fare`) AS `total_base_fare`, sum(`b`.`discount_amount`) AS `total_discount`, sum(`b`.`final_fare`) AS `total_amount`, group_concat(concat(`b`.`passenger_name`,' (Seat ',`b`.`seat_number`,')') separator ', ') AS `passengers_list`, group_concat(distinct `b`.`discount_type` separator ',') AS `discount_types`, `b`.`booking_date` AS `booking_date`, `b`.`payment_method` AS `payment_method`, `b`.`payment_status` AS `payment_status`, `b`.`created_at` AS `created_at`, `u`.`first_name` AS `booker_first_name`, `u`.`last_name` AS `booker_last_name`, `u`.`email` AS `booker_email`, `bus`.`plate_number` AS `plate_number`, `bus`.`route_name` AS `route_name`, `s`.`departure_time` AS `departure_time`, `s`.`arrival_time` AS `arrival_time`, `s`.`trip_number` AS `trip_number` FROM (((`bookings` `b` left join `users` `u` on(`b`.`user_id` = `u`.`id`)) left join `buses` `bus` on(`b`.`bus_id` = `bus`.`id`)) left join `schedules` `s` on(`b`.`bus_id` = `s`.`bus_id` and `b`.`trip_number` = `s`.`trip_number`)) WHERE `b`.`group_booking_id` is not null GROUP BY `b`.`group_booking_id` ORDER BY `b`.`created_at` DESC ;
+
+-- --------------------------------------------------------
+
+--
 -- Structure for view `revenue_summary_view`
 --
 DROP TABLE IF EXISTS `revenue_summary_view`;
@@ -658,8 +830,6 @@ ALTER TABLE `audit_logs`
 --
 ALTER TABLE `bookings`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `prevent_duplicate_confirmed` (`bus_id`,`seat_number`,`booking_date`,`booking_status`),
-  ADD UNIQUE KEY `booking_reference` (`booking_reference`),
   ADD KEY `bus_id` (`bus_id`),
   ADD KEY `user_id` (`user_id`),
   ADD KEY `idx_booking_reference` (`booking_reference`),
@@ -674,7 +844,11 @@ ALTER TABLE `bookings`
   ADD KEY `fk_cancelled_by` (`cancelled_by`),
   ADD KEY `fk_refund_processor` (`refund_processed_by`),
   ADD KEY `idx_bookings_bus_id` (`bus_id`),
-  ADD KEY `idx_bookings_user_id` (`user_id`);
+  ADD KEY `idx_bookings_user_id` (`user_id`),
+  ADD KEY `idx_group_booking_id` (`group_booking_id`),
+  ADD KEY `idx_bus_date` (`bus_id`,`booking_date`),
+  ADD KEY `idx_booking_status` (`booking_status`),
+  ADD KEY `idx_booking_date` (`booking_date`);
 
 --
 -- Indexes for table `booking_groups`
@@ -797,7 +971,7 @@ ALTER TABLE `audit_logs`
 -- AUTO_INCREMENT for table `bookings`
 --
 ALTER TABLE `bookings`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10011;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `booking_groups`
