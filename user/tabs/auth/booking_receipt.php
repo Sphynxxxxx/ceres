@@ -1,7 +1,7 @@
 <?php
 /**
- * Enhanced Booking Receipt Page for Unified Booking System
- * Synced with new database schema and multiple booking functionality
+ * Enhanced Booking Receipt Page for Current Booking System
+ * Compatible with new database schema and booking functionality
  * Place this file in: auth/booking_receipt.php
  */
 
@@ -16,18 +16,25 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 // Database connection
 require_once "../../../backend/connections/config.php";
 
-// Get booking information from URL parameters
+// Get booking information from URL parameters - FIXED VERSION
 $booking_ids = isset($_GET['booking_ids']) ? $_GET['booking_ids'] : '';
 $booking_refs = isset($_GET['booking_refs']) ? $_GET['booking_refs'] : '';
 $booking_id = isset($_GET['booking_id']) ? intval($_GET['booking_id']) : 0;
-$group_booking_id = isset($_GET['group_id']) ? $_GET['group_id'] : '';
+$group_booking_id = isset($_GET['group_booking_id']) ? $_GET['group_booking_id'] : '';
+$group_reference = isset($_GET['group_reference']) ? $_GET['group_reference'] : '';
+
+// Normalize group parameters - use whichever is provided
+if (!empty($group_reference) && empty($group_booking_id)) {
+    $group_booking_id = $group_reference;
+} elseif (!empty($group_booking_id) && empty($group_reference)) {
+    $group_reference = $group_booking_id;
+}
 
 $bookings = [];
 $total_fare = 0;
 $total_savings = 0;
 $bus_info = null;
 $route_info = null;
-$group_info = null;
 $user_info = null;
 
 try {
@@ -36,7 +43,7 @@ try {
     $stmt_types = "";
     
     if (!empty($booking_ids)) {
-        // Multiple bookings by IDs (most common from unified system)
+        // Multiple bookings by IDs
         $ids = array_map('intval', explode(',', $booking_ids));
         $placeholders = str_repeat('?,', count($ids) - 1) . '?';
         
@@ -92,7 +99,7 @@ try {
         $stmt_types = "i";
         
     } else if (!empty($group_booking_id)) {
-        // Group booking by group ID
+        // Group booking by group ID - FIXED QUERY
         $query = "SELECT b.*, u.first_name, u.last_name, u.email, u.contact_number,
                          bus.bus_type, bus.plate_number, bus.route_name, bus.driver_name, bus.conductor_name,
                          s.departure_time, s.arrival_time, s.trip_number,
@@ -111,6 +118,10 @@ try {
         throw new Exception("No booking information provided");
     }
     
+    // Debug: Log the query and parameters
+    error_log("Receipt Query: " . $query);
+    error_log("Parameters: " . print_r($stmt_params, true));
+    
     $stmt = $conn->prepare($query);
     if (!$stmt) {
         throw new Exception("Database prepare error: " . $conn->error);
@@ -123,18 +134,29 @@ try {
     $stmt->execute();
     $result = $stmt->get_result();
     
+    if ($result->num_rows === 0) {
+        throw new Exception("No bookings found with the provided information. Group ID: " . $group_booking_id);
+    }
+    
     while ($row = $result->fetch_assoc()) {
-        // Use the calculated fares from database if available, otherwise calculate
+        // FIXED: Use the specific passenger's data for fare calculation
         $base_fare = floatval($row['base_fare'] ?: $row['route_base_fare']);
-        $discount_amount = floatval($row['discount_amount'] ?: 0);
-        $final_fare = floatval($row['final_fare'] ?: $base_fare);
+        $discount_amount = floatval($row['discount_amount']);
+        $final_fare = floatval($row['final_fare']);
+        $passenger_discount_type = $row['discount_type'];
         
-        // Fallback calculation if database values are missing
-        if (!$row['final_fare'] && in_array($row['discount_type'], ['student', 'senior', 'pwd'])) {
-            $discount_amount = $base_fare * 0.2; // 20% discount
-            $final_fare = $base_fare * 0.8;
+        // Fallback calculation if database values are missing - use THIS passenger's discount type
+        if (empty($row['final_fare']) || empty($row['discount_amount'])) {
+            if ($passenger_discount_type !== 'regular' && in_array($passenger_discount_type, ['student', 'senior', 'pwd'])) {
+                $discount_amount = $base_fare * 0.2; // 20% discount
+                $final_fare = $base_fare * 0.8;
+            } else {
+                $discount_amount = 0;
+                $final_fare = $base_fare;
+            }
         }
         
+        // Update the row data with calculated values
         $row['base_fare'] = $base_fare;
         $row['discount_amount'] = $discount_amount;
         $row['final_fare'] = $final_fare;
@@ -143,6 +165,9 @@ try {
         $total_savings += $discount_amount;
         
         $bookings[] = $row;
+        
+        // Debug logging for each passenger's fare
+        error_log("Receipt - Passenger: {$row['passenger_name']}, Discount Type: {$passenger_discount_type}, Base: {$base_fare}, Discount: {$discount_amount}, Final: {$final_fare}");
         
         // Store bus and route info (same for all bookings in a group)
         if (!$bus_info) {
@@ -175,19 +200,6 @@ try {
     
     if (empty($bookings)) {
         throw new Exception("No bookings found with the provided information");
-    }
-    
-    // Get group booking information if it's a group booking
-    if (!empty($bookings[0]['group_booking_id'])) {
-        $group_query = "SELECT * FROM booking_groups WHERE group_id = ?";
-        $group_stmt = $conn->prepare($group_query);
-        $group_stmt->bind_param("s", $bookings[0]['group_booking_id']);
-        $group_stmt->execute();
-        $group_result = $group_stmt->get_result();
-        
-        if ($group_result->num_rows > 0) {
-            $group_info = $group_result->fetch_assoc();
-        }
     }
     
     // Log successful receipt generation
@@ -524,7 +536,7 @@ function getStatusClass($status) {
                             <i class="fas fa-receipt me-2"></i>Booking Receipt
                         </h2>
                         <p class="mb-0">ISAT-U Ceres Bus Ticket System</p>
-                        <?php if ($group_info): ?>
+                        <?php if (!empty($bookings[0]['group_booking_id']) && count($bookings) > 1): ?>
                         <small class="badge bg-light text-dark mt-2">
                             Group Booking: <?php echo htmlspecialchars($bookings[0]['group_booking_id']); ?>
                         </small>
@@ -638,7 +650,7 @@ function getStatusClass($status) {
                 </div>
 
                 <!-- Group Booking Information -->
-                <?php if ($group_info): ?>
+                <?php if (!empty($bookings[0]['group_booking_id']) && count($bookings) > 1): ?>
                 <div class="group-booking-info">
                     <div class="row align-items-center">
                         <div class="col-md-8">
@@ -646,15 +658,15 @@ function getStatusClass($status) {
                                 <i class="fas fa-users me-2"></i>Group Booking Information
                             </h5>
                             <p class="mb-0">
-                                Group ID: <?php echo htmlspecialchars($group_info['group_id']); ?> | 
-                                Status: <?php echo ucfirst($group_info['group_status']); ?>
+                                Group ID: <?php echo htmlspecialchars($bookings[0]['group_booking_id']); ?> | 
+                                Status: Confirmed
                             </p>
                         </div>
                         <div class="col-md-4 text-end">
                             <div class="fw-bold">
-                                <?php echo $group_info['total_tickets']; ?> Tickets
+                                <?php echo count($bookings); ?> Tickets
                             </div>
-                            <small>Total Group Amount: ₱<?php echo number_format($group_info['total_amount'], 2); ?></small>
+                            <small>Total Group Amount: ₱<?php echo number_format($total_fare, 2); ?></small>
                         </div>
                     </div>
                 </div>
@@ -678,68 +690,52 @@ function getStatusClass($status) {
                         </div>
                     </div>
                     <div class="ticket-body">
-                        <div class="row">
+                        <div class="row mb-3">
                             <div class="col-md-6">
-                                <div class="mb-3">
-                                    <strong><i class="fas fa-user me-1"></i>Passenger Name:</strong><br>
-                                    <span class="fs-6"><?php echo htmlspecialchars($booking['passenger_name'] ?: $booking['first_name'] . ' ' . $booking['last_name']); ?></span>
-                                </div>
-                                <div class="mb-3">
-                                    <strong><i class="fas fa-info-circle me-1"></i>Booking Status:</strong><br>
-                                    <span class="status-badge <?php echo getStatusClass($booking['booking_status']); ?>">
-                                        <i class="fas fa-<?php echo $booking['booking_status'] === 'confirmed' ? 'check-circle' : 'clock'; ?>"></i>
-                                        <?php echo ucfirst($booking['booking_status']); ?>
-                                    </span>
-                                </div>
-                                <?php if ($booking['created_at']): ?>
-                                <div class="mb-2">
-                                    <strong><i class="fas fa-calendar me-1"></i>Booked On:</strong><br>
-                                    <small class="text-muted"><?php echo date('M d, Y h:i A', strtotime($booking['created_at'])); ?></small>
-                                </div>
-                                <?php endif; ?>
+                                <strong><i class="fas fa-user me-1"></i>Passenger Name:</strong><br>
+                                <span><?php echo htmlspecialchars($booking['passenger_name'] ?: 'Not provided'); ?></span>
                             </div>
                             <div class="col-md-6">
-                                <div class="mb-3">
-                                    <strong><i class="fas fa-tag me-1"></i>Discount Type:</strong><br>
-                                    <?php if ($booking['discount_type'] !== 'regular'): ?>
-                                        <span class="discount-badge">
-                                            <i class="fas fa-percent me-1"></i>
-                                            <?php echo ucfirst($booking['discount_type']); ?> (20% Off)
-                                        </span>
-                                        <div class="verification-status">
-                                            <div class="verification-icon <?php echo $booking['discount_verified'] ? 'verified' : 'pending-verification'; ?>">
-                                                <i class="fas fa-<?php echo $booking['discount_verified'] ? 'check' : 'clock'; ?>"></i>
-                                            </div>
-                                            <small class="text-muted">
-                                                ID <?php echo $booking['discount_verified'] ? 'Verified' : 'Pending Verification'; ?>
-                                            </small>
-                                        </div>
-                                    <?php else: ?>
-                                        <span class="badge bg-secondary">Regular Fare</span>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="mb-3">
-                                    <strong><i class="fas fa-credit-card me-1"></i>Payment Method:</strong><br>
-                                    <?php 
-                                    $payment_display = getPaymentMethodDisplay($booking['payment_method']);
-                                    ?>
-                                    <span class="badge bg-info">
-                                        <i class="fas fa-<?php echo $payment_display['icon']; ?> me-1"></i>
-                                        <?php echo $payment_display['text']; ?>
+                                <strong><i class="fas fa-tag me-1"></i>Discount Type:</strong><br>
+                                <?php if ($booking['discount_type'] !== 'regular'): ?>
+                                    <span class="discount-badge">
+                                        <i class="fas fa-percent me-1"></i>
+                                        <?php echo ucfirst($booking['discount_type']); ?> (20% Off)
                                     </span>
-                                    
-                                    <?php if ($booking['payment_method'] !== 'counter'): ?>
                                     <div class="verification-status">
-                                        <div class="verification-icon <?php echo $booking['payment_status'] === 'confirmed' ? 'verified' : 'pending-verification'; ?>">
-                                            <i class="fas fa-<?php echo $booking['payment_status'] === 'confirmed' ? 'check' : 'clock'; ?>"></i>
+                                        <div class="verification-icon <?php echo $booking['discount_verified'] ? 'verified' : 'pending-verification'; ?>">
+                                            <i class="fas fa-<?php echo $booking['discount_verified'] ? 'check' : 'clock'; ?>"></i>
                                         </div>
                                         <small class="text-muted">
-                                            Payment <?php echo ucwords(str_replace('_', ' ', $booking['payment_status'])); ?>
+                                            ID <?php echo $booking['discount_verified'] ? 'Verified' : 'Pending Verification'; ?>
                                         </small>
                                     </div>
-                                    <?php endif; ?>
-                                </div>
+                                <?php else: ?>
+                                    <span class="badge bg-secondary">Regular Fare</span>
+                                <?php endif; ?>
                             </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <strong><i class="fas fa-credit-card me-1"></i>Payment Method:</strong><br>
+                            <?php 
+                            $payment_display = getPaymentMethodDisplay($booking['payment_method']);
+                            ?>
+                            <span class="badge bg-info">
+                                <i class="fas fa-<?php echo $payment_display['icon']; ?> me-1"></i>
+                                <?php echo $payment_display['text']; ?>
+                            </span>
+                            
+                            <?php if ($booking['payment_method'] !== 'counter'): ?>
+                            <div class="verification-status">
+                                <div class="verification-icon <?php echo $booking['payment_status'] === 'confirmed' ? 'verified' : 'pending-verification'; ?>">
+                                    <i class="fas fa-<?php echo $booking['payment_status'] === 'confirmed' ? 'check' : 'clock'; ?>"></i>
+                                </div>
+                                <small class="text-muted">
+                                    Payment <?php echo ucwords(str_replace('_', ' ', $booking['payment_status'])); ?>
+                                </small>
+                            </div>
+                            <?php endif; ?>
                         </div>
                         
                         <div class="fare-breakdown">
@@ -753,7 +749,7 @@ function getStatusClass($status) {
                                     </div>
                                     <?php if ($booking['discount_amount'] > 0): ?>
                                     <div class="mb-2">
-                                        <small class="text-muted d-block">Discount:</small>
+                                        <small class="text-muted d-block">Discount (<?php echo ucfirst($booking['discount_type']); ?>):</small>
                                         <span class="text-success fw-bold">
                                             -₱<?php echo number_format($booking['discount_amount'], 2); ?>
                                         </span>
@@ -823,7 +819,7 @@ function getStatusClass($status) {
                         <i class="fas fa-mobile-alt me-1"></i>
                         Show this QR code to the conductor when boarding the bus
                     </p>
-                </div>
+                </div> 
 
                 <!-- Important Notes -->
                 <div class="important-notes">

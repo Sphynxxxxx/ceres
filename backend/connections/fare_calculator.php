@@ -1,8 +1,5 @@
 <?php
-/**
- * Bus Fare Calculator
- * Calculates fare based on distance and passenger type
- */
+
 class FareCalculator {
     // Base fare for first 4km
     private $baseFare = 12.00; 
@@ -12,21 +9,21 @@ class FareCalculator {
     
     // Discount percentages for special passengers
     private $discounts = [
-        'student' => 20, // 20% discount for students
-        'senior' => 20,  // 20% discount for senior citizens
-        'pwd' => 20      // 20% discount for persons with disability
+        'student' => 20, 
+        'senior' => 20,  
+        'pwd' => 20      
     ];
     
     /**
      * Calculate fare based on distance and passenger type
      * 
-     * @param float $distance Distance in kilometers
-     * @param string $passengerType Type of passenger (regular, student, senior, pwd)
-     * @return float Calculated fare
+     * @param float $distance
+     * @param string $passengerType 
+     * @return float 
      */
     public function calculateFare($distance, $passengerType = 'regular') {
         // Calculate the basic fare
-        $fare = $this->baseFare; // Base fare for first 4km
+        $fare = $this->baseFare; 
         
         // Add fare for additional distance beyond 4km
         if ($distance > 4) {
@@ -34,7 +31,7 @@ class FareCalculator {
             $fare += $additionalDistance * $this->ratePerKm;
         }
         
-        // Round fare to nearest 0.25 peso (traditional Philippine fare rounding)
+        // Round fare to nearest 0.25 peso 
         $fare = $this->roundToQuarter($fare);
         
         // Apply discount if applicable
