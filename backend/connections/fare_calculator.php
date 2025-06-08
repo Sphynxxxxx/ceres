@@ -60,14 +60,13 @@ class FareCalculator {
     /**
      * Get estimated fare range for a route
      * 
-     * @param float $distance Distance in kilometers
-     * @return array Fare range (min and max fares)
+     * @param float $distance 
+     * @return array 
      */
     public function getFareRange($distance) {
         // Regular fare
         $regularFare = $this->calculateFare($distance, 'regular');
         
-        // Discounted fare (all special types have same discount in this implementation)
         $discountedFare = $this->calculateFare($distance, 'student');
         
         return [

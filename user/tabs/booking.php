@@ -723,6 +723,45 @@ function getBookedSeats($conn, $busId, $date) {
             border-radius: 8px;
             margin-top: 15px;
         }
+        .qr-code-section {
+            background: #f8f9fa;
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 15px;
+        }
+        .qr-placeholder {
+            width: 200px;
+            height: 200px;
+            background: #e9ecef;
+            border: 2px solid #adb5bd;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            font-size: 48px;
+            color: #6c757d;
+        }
+        .payment-method-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .payment-method-card:hover {
+            background-color: #f8f9fa;
+            border-color: #0d6efd !important;
+        }
+        .payment-method-card.selected {
+            background-color: #e7f3ff;
+            border-color: #0d6efd !important;
+            border-width: 2px !important;
+        }
+        .qr-instructions {
+            font-size: 14px;
+            color: #6c757d;
+            line-height: 1.5;
+        }
 
         @media (max-width: 991.98px) {
             .summary-card {
@@ -954,32 +993,67 @@ function getBookedSeats($conn, $busId, $date) {
                     </div>
 
                     <!-- Payment Method -->
-                    <div class="card mb-4" id="payment-selection" style="display: none;">
+                    <div class="card mb-4" id="payment-selection">
                         <div class="card-header bg-warning text-dark">
                             <h5 class="mb-0"><i class="fas fa-credit-card me-2"></i>Payment Method</h5>
                         </div>
                         <div class="card-body">
                             <div class="payment-methods">
-                                <div class="form-check mb-3 p-3 border rounded">
+                                <!-- Counter Payment -->
+                                <div class="form-check mb-3 p-3 border rounded payment-method-card">
                                     <input class="form-check-input" type="radio" name="payment_method" id="counter" value="counter">
-                                    <label class="form-check-label" for="counter">
+                                    <label class="form-check-label w-100" for="counter">
                                         <strong><i class="fas fa-money-bill-wave me-2"></i>Pay Over the Counter</strong>
                                         <small class="d-block text-muted">Pay at the terminal before your trip</small>
                                     </label>
                                 </div>
-                                <div class="form-check mb-3 p-3 border rounded">
+
+                                <!-- GCash Payment -->
+                                <div class="form-check mb-3 p-3 border rounded payment-method-card">
                                     <input class="form-check-input" type="radio" name="payment_method" id="gcash" value="gcash">
-                                    <label class="form-check-label" for="gcash">
+                                    <label class="form-check-label w-100" for="gcash">
                                         <strong><i class="fas fa-mobile-alt me-2"></i>GCash</strong>
                                         <small class="d-block text-muted">Pay instantly using GCash (requires payment proof upload)</small>
                                     </label>
+                                    
+                                    <!-- GCash QR Code Section -->
+                                    <div id="gcash-qr-section" class="qr-code-section" style="display: none;">
+                                        <h6 class="text-primary mb-3"><i class="fas fa-qrcode me-2"></i>Scan GCash QR Code</h6>
+                                        <img src="../assets/QRgcash.jpg" alt="GCash QR Code" class="img-fluid" style="max-width: 200px;">
+                                        <p class="qr-instructions mb-2">
+                                            <strong>Instructions:</strong><br>
+                                            1. Open your GCash app<br>
+                                            2. Tap "Scan QR" or "Pay QR"<br>
+                                            3. Scan the QR code above<br>
+                                            4. Enter the payment amount<br>
+                                            5. Complete the transaction<br>
+                                            6. Upload payment proof below
+                                        </p>
+                                    </div>
                                 </div>
-                                <div class="form-check mb-3 p-3 border rounded">
+
+                                <!-- PayMaya Payment -->
+                                <div class="form-check mb-3 p-3 border rounded payment-method-card">
                                     <input class="form-check-input" type="radio" name="payment_method" id="paymaya" value="paymaya">
-                                    <label class="form-check-label" for="paymaya">
+                                    <label class="form-check-label w-100" for="paymaya">
                                         <strong><i class="fas fa-credit-card me-2"></i>PayMaya</strong>
                                         <small class="d-block text-muted">Pay using PayMaya (requires payment proof upload)</small>
                                     </label>
+                                    
+                                    <!-- PayMaya QR Code Section -->
+                                    <div id="paymaya-qr-section" class="qr-code-section" style="display: none;">
+                                        <h6 class="text-success mb-3"><i class="fas fa-qrcode me-2"></i>Scan PayMaya QR Code</h6>
+                                        <img src="../assets/QRgcash.jpg" alt="GCash QR Code" class="img-fluid" style="max-width: 200px;">
+                                        <p class="qr-instructions mb-2">
+                                            <strong>Instructions:</strong><br>
+                                            1. Open your PayMaya app<br>
+                                            2. Tap "Scan to Pay"<br>
+                                            3. Scan the QR code above<br>
+                                            4. Enter the payment amount<br>
+                                            5. Complete the transaction<br>
+                                            6. Upload payment proof below
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1908,8 +1982,42 @@ function getBookedSeats($conn, $busId, $date) {
             alert(message);
         }
 
+    
         // Initialize the application
         init();
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const paymentMethods = document.querySelectorAll('input[name="payment_method"]');
+            const paymentProofSection = document.getElementById('payment-proof-section');
+            const gcashQRSection = document.getElementById('gcash-qr-section');
+            const paymayaQRSection = document.getElementById('paymaya-qr-section');
+
+            paymentMethods.forEach(method => {
+                method.addEventListener('change', function() {
+                    // Remove selected class from all cards
+                    document.querySelectorAll('.payment-method-card').forEach(card => {
+                        card.classList.remove('selected');
+                    });
+
+                    // Add selected class to current card
+                    this.closest('.payment-method-card').classList.add('selected');
+
+                    // Hide all QR sections
+                    gcashQRSection.style.display = 'none';
+                    paymayaQRSection.style.display = 'none';
+
+                    if (this.value === 'gcash') {
+                        paymentProofSection.style.display = 'block';
+                        gcashQRSection.style.display = 'block';
+                    } else if (this.value === 'paymaya') {
+                        paymentProofSection.style.display = 'block';
+                        paymayaQRSection.style.display = 'block';
+                    } else if (this.value === 'counter') {
+                        paymentProofSection.style.display = 'none';
+                    }
+                });
+            });
+        });
     </script>
 </body>
 </html>
