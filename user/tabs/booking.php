@@ -4,7 +4,6 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
-
     header("Location: login.php");
     exit;
 }
@@ -25,6 +24,150 @@ if (!isset($conn) || !($conn instanceof mysqli)) {
 
 if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
+}
+
+// Ensure upload directories exist with proper permissions
+$upload_dirs = [
+    __DIR__ . '/../../uploads/payment_proofs/',
+    __DIR__ . '/../../uploads/discount_ids/'
+];
+
+foreach ($upload_dirs as $dir) {
+    if (!file_exists($dir)) {
+        if (!mkdir($dir, 0755, true)) {
+            error_log("Failed to create upload directory: " . $dir);
+        } else {
+            error_log("Created upload directory: " . $dir);
+        }
+    }
+    
+    // Check if directory is writable
+    if (!is_writable($dir)) {
+        error_log("Upload directory not writable: " . $dir);
+        // Try to fix permissions
+        chmod($dir, 0755);
+    }
+}
+
+// Add this function to debug file uploads
+function debugFileUpload($fileKey) {
+    if (isset($_FILES[$fileKey])) {
+        error_log("=== FILE UPLOAD DEBUG: $fileKey ===");
+        error_log("Name: " . $_FILES[$fileKey]['name']);
+        error_log("Size: " . $_FILES[$fileKey]['size']);
+        error_log("Error: " . $_FILES[$fileKey]['error']);
+        error_log("Tmp Name: " . $_FILES[$fileKey]['tmp_name']);
+        error_log("=== END FILE UPLOAD DEBUG ===");
+    } else {
+        error_log("No file uploaded for key: $fileKey");
+    }
+}
+
+/**
+ * Process payment proof image upload with enhanced debugging
+ */
+function processPaymentProofUpload($payment_method) {
+    try {
+        debugFileUpload('payment_proof');
+        
+        if (!isset($_FILES['payment_proof']) || $_FILES['payment_proof']['error'] !== UPLOAD_ERR_OK) {
+            error_log("Payment proof upload failed - Error code: " . ($_FILES['payment_proof']['error'] ?? 'FILE_NOT_SET'));
+            return null;
+        }
+        
+        $file = $_FILES['payment_proof'];
+        $upload_dir = __DIR__ . '/../../uploads/payment_proofs/';
+        
+        // Ensure directory exists
+        if (!file_exists($upload_dir)) {
+            mkdir($upload_dir, 0755, true);
+        }
+        
+        // Validate file type
+        $file_info = getimagesize($file['tmp_name']);
+        if ($file_info === false || !in_array($file_info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF])) {
+            error_log("Invalid image type for payment proof");
+            return null;
+        }
+        
+        // Check file size (5MB max)
+        if ($file['size'] > 5 * 1024 * 1024) {
+            error_log("Payment proof file too large: " . $file['size'] . " bytes");
+            return null;
+        }
+        
+        // Generate unique filename
+        $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $unique_filename = $payment_method . '_' . time() . '_' . uniqid() . '.' . $file_ext;
+        $upload_path = $upload_dir . $unique_filename;
+        
+        if (move_uploaded_file($file['tmp_name'], $upload_path)) {
+            $relative_path = 'uploads/payment_proofs/' . $unique_filename;
+            error_log("Payment proof uploaded successfully: " . $relative_path);
+            return $relative_path;
+        } else {
+            error_log("Failed to move payment proof file to: " . $upload_path);
+            return null;
+        }
+        
+    } catch (Exception $e) {
+        error_log("Error processing payment proof upload: " . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * Process discount ID image upload with enhanced debugging
+ */
+function processDiscountIDUpload($discount_type, $passenger_index) {
+    try {
+        $file_key = "discount_id_proof_$passenger_index";
+        debugFileUpload($file_key);
+        
+        if (!isset($_FILES[$file_key]) || $_FILES[$file_key]['error'] !== UPLOAD_ERR_OK) {
+            error_log("Discount ID upload failed for passenger $passenger_index - Error code: " . ($_FILES[$file_key]['error'] ?? 'FILE_NOT_SET'));
+            return null;
+        }
+        
+        $file = $_FILES[$file_key];
+        $upload_dir = __DIR__ . '/../../uploads/discount_ids/';
+        
+        // Ensure directory exists
+        if (!file_exists($upload_dir)) {
+            mkdir($upload_dir, 0755, true);
+        }
+        
+        // Validate file type
+        $file_info = getimagesize($file['tmp_name']);
+        if ($file_info === false || !in_array($file_info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF])) {
+            error_log("Invalid image type for discount ID - passenger $passenger_index");
+            return null;
+        }
+        
+        // Check file size (5MB max)
+        if ($file['size'] > 5 * 1024 * 1024) {
+            error_log("Discount ID file too large for passenger $passenger_index: " . $file['size'] . " bytes");
+            return null;
+        }
+        
+        // Generate unique filename
+        $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $unique_filename = $discount_type . '_p' . $passenger_index . '_' . time() . '_' . uniqid() . '.' . $file_ext;
+        $upload_path = $upload_dir . $unique_filename;
+        
+        if (move_uploaded_file($file['tmp_name'], $upload_path)) {
+            $relative_path = 'uploads/discount_ids/' . $unique_filename;
+            error_log("Discount ID uploaded successfully for passenger $passenger_index: " . $relative_path);
+            return $relative_path;
+        } else {
+            error_log("Failed to move discount ID file to: " . $upload_path);
+            return null;
+        }
+        
+    } catch (Exception $e) {
+        error_log("Error processing discount ID upload for passenger $passenger_index: " . $e->getMessage());
+        return null;
+    }
 }
 
 // Initialize variables
@@ -106,12 +249,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
         $passengers[] = $passenger;
     }
     
+    // CRITICAL FIX: Process file uploads BEFORE validation check
+    $payment_proof_path = null;
+    $discount_id_paths = [];
+    
+    if (empty($errors)) {
+        // Process payment proof upload BEFORE starting transaction
+        if ($payment_method === 'gcash' || $payment_method === 'paymaya') {
+            $payment_proof_path = processPaymentProofUpload($payment_method);
+            if (!$payment_proof_path) {
+                $errors[] = "Failed to upload payment proof. Please try again.";
+            }
+        }
+        
+        // Process discount ID uploads for each passenger
+        for ($i = 1; $i <= $passenger_count; $i++) {
+            $discount_type_key = "discount_type_$i";
+            $passenger_discount = isset($_POST[$discount_type_key]) ? $_POST[$discount_type_key] : 'regular';
+            
+            if ($passenger_discount !== 'regular') {
+                $discount_id_path = processDiscountIDUpload($passenger_discount, $i);
+                $discount_id_paths[$i] = $discount_id_path;
+                
+                // For online payments, discount ID is required
+                if (($payment_method === 'gcash' || $payment_method === 'paymaya') && !$discount_id_path) {
+                    $errors[] = "Failed to upload discount ID for passenger $i. Please try again.";
+                }
+            } else {
+                $discount_id_paths[$i] = null;
+            }
+        }
+    }
     
     if (empty($errors)) {
         try {
             // Begin transaction
             $conn->begin_transaction();
-            
             
             $group_reference = 'GRP-' . date('Ymd') . '-' . uniqid();
 
@@ -143,7 +316,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
             $current_timestamp = date('Y-m-d H:i:s');
             $booking_ids = [];
 
-            // Enhanced booking insertion with proper discount handling - FIXED VERSION
+            // Enhanced booking insertion with proper discount handling and file uploads - FIXED VERSION
             foreach ($passengers as $index => $passenger) {
                 // Generate individual booking reference
                 $individual_reference = 'BK-' . date('Ymd') . '-' . substr($group_reference, 4) . '-P' . ($index + 1);
@@ -161,6 +334,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
                     }
                 }
                 
+                // Get the discount ID path for this passenger
+                $passenger_discount_id = isset($discount_id_paths[$index + 1]) ? $discount_id_paths[$index + 1] : null;
+                
                 // Enhanced debug logging for each passenger's fare calculation
                 error_log("=== FARE CALCULATION FOR PASSENGER " . ($index + 1) . " ===");
                 error_log("Passenger Name: {$passenger['name']}");
@@ -168,6 +344,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
                 error_log("Base Fare: {$base_fare}");
                 error_log("Discount Amount: {$discount_amount}");
                 error_log("Final Fare: {$final_fare}");
+                error_log("Payment Proof Path: " . ($payment_proof_path ?? 'NULL'));
+                error_log("Discount ID Path: " . ($passenger_discount_id ?? 'NULL'));
                 error_log("=== END FARE CALCULATION ===");
                 
                 $passenger_name = $passenger['name'];
@@ -186,8 +364,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
                     throw new Exception("Failed to prepare insert statement for passenger " . ($index + 1) . ": " . $conn->error);
                 }
                 
-                // Enhanced parameter binding with additional debug
+                // Enhanced parameter binding with payment proof and discount ID paths
                 error_log("=== BINDING PARAMETERS FOR PASSENGER " . ($index + 1) . " ===");
+                error_log("Payment proof path being bound: " . ($payment_proof_path ?? 'NULL'));
+                error_log("Discount ID path being bound: " . ($passenger_discount_id ?? 'NULL'));
                 error_log("Discount type being bound: '$passenger_discount_type'");
                 
                 $insert_stmt->bind_param("iiississsssssssddd", 
@@ -201,11 +381,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
                     $trip_number,                     
                     $payment_method,                  
                     $payment_status,                  
-                    $payment_proof_path,              
+                    $payment_proof_path,              // Now properly set
                     $payment_proof_status,            
                     $current_timestamp,               
                     $passenger_discount_type,        
-                    $passenger['discount_id_proof'],   
+                    $passenger_discount_id,           // Now properly set
                     $base_fare,                        
                     $discount_amount,                  
                     $final_fare                        
@@ -222,7 +402,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
                     $booking_ids[] = $last_insert_id;
                     
                     // Enhanced verification: Check what was actually inserted
-                    $verify_query = "SELECT id, passenger_name, discount_type, base_fare, discount_amount, final_fare FROM bookings WHERE id = ?";
+                    $verify_query = "SELECT id, passenger_name, discount_type, base_fare, discount_amount, final_fare, payment_proof, discount_id_proof FROM bookings WHERE id = ?";
                     $verify_stmt = $conn->prepare($verify_query);
                     if ($verify_stmt) {
                         $verify_stmt->bind_param("i", $last_insert_id);
@@ -236,6 +416,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
                             error_log("Base Fare: {$verify_row['base_fare']}");
                             error_log("Discount Amount: {$verify_row['discount_amount']}");
                             error_log("Final Fare: {$verify_row['final_fare']}");
+                            error_log("Payment Proof: " . ($verify_row['payment_proof'] ?? 'NULL'));
+                            error_log("Discount ID Proof: " . ($verify_row['discount_id_proof'] ?? 'NULL'));
                             error_log("=== END VERIFICATION ===");
                         }
                         $verify_stmt->close();
@@ -253,7 +435,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
             error_log("Group Reference: " . $group_reference);
             error_log("Booking IDs: " . implode(',', $booking_ids));
             
-            $verify_all_query = "SELECT id, booking_reference, group_booking_id, passenger_name, seat_number, discount_type, final_fare FROM bookings WHERE group_booking_id = ?";
+            $verify_all_query = "SELECT id, booking_reference, group_booking_id, passenger_name, seat_number, discount_type, final_fare, payment_proof, discount_id_proof FROM bookings WHERE group_booking_id = ?";
             $verify_all_stmt = $conn->prepare($verify_all_query);
             if ($verify_all_stmt) {
                 $verify_all_stmt->bind_param("s", $group_reference);
@@ -262,7 +444,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
                 
                 error_log("Found " . $verify_all_result->num_rows . " bookings for group: " . $group_reference);
                 while ($verify_row = $verify_all_result->fetch_assoc()) {
-                    error_log("Booking ID: {$verify_row['id']}, Reference: {$verify_row['booking_reference']}, Passenger: {$verify_row['passenger_name']}, Seat: {$verify_row['seat_number']}, Discount: {$verify_row['discount_type']}, Fare: {$verify_row['final_fare']}");
+                    error_log("Booking ID: {$verify_row['id']}, Reference: {$verify_row['booking_reference']}, Passenger: {$verify_row['passenger_name']}, Seat: {$verify_row['seat_number']}, Discount: {$verify_row['discount_type']}, Fare: {$verify_row['final_fare']}, Payment Proof: " . ($verify_row['payment_proof'] ?? 'NULL') . ", Discount ID: " . ($verify_row['discount_id_proof'] ?? 'NULL'));
                 }
                 $verify_all_stmt->close();
             }
@@ -295,88 +477,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_tickets'])) {
     } else {
         $booking_error = implode(", ", $errors);
         error_log("Validation errors: " . $booking_error);
-    }
-}
-
-/**
- * Process payment proof image upload
- */
-function processPaymentProofUpload($payment_method) {
-    try {
-        if (!isset($_FILES['payment_proof']) || $_FILES['payment_proof']['error'] !== UPLOAD_ERR_OK) {
-            return null;
-        }
-        
-        $file = $_FILES['payment_proof'];
-        $upload_dir = __DIR__ . '/../../uploads/payment_proofs/';
-        
-        if (!file_exists($upload_dir)) {
-            mkdir($upload_dir, 0755, true);
-        }
-        
-        $file_info = getimagesize($file['tmp_name']);
-        if ($file_info === false || !in_array($file_info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF])) {
-            return null;
-        }
-        
-        if ($file['size'] > 5 * 1024 * 1024) {
-            return null;
-        }
-        
-        $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        $unique_filename = $payment_method . '_' . time() . '_' . uniqid() . '.' . $file_ext;
-        $upload_path = $upload_dir . $unique_filename;
-        
-        if (move_uploaded_file($file['tmp_name'], $upload_path)) {
-            return 'uploads/payment_proofs/' . $unique_filename;
-        }
-        
-        return null;
-    } catch (Exception $e) {
-        error_log("Error processing payment proof upload: " . $e->getMessage());
-        return null;
-    }
-}
-
-/**
- * Process discount ID image upload
- */
-function processDiscountIDUpload($discount_type, $passenger_index) {
-    try {
-        $file_key = "discount_id_proof_$passenger_index";
-        
-        if (!isset($_FILES[$file_key]) || $_FILES[$file_key]['error'] !== UPLOAD_ERR_OK) {
-            return null;
-        }
-        
-        $file = $_FILES[$file_key];
-        $upload_dir = __DIR__ . '/../../uploads/discount_ids/';
-        
-        if (!file_exists($upload_dir)) {
-            mkdir($upload_dir, 0755, true);
-        }
-        
-        $file_info = getimagesize($file['tmp_name']);
-        if ($file_info === false || !in_array($file_info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF])) {
-            return null;
-        }
-        
-        if ($file['size'] > 5 * 1024 * 1024) {
-            return null;
-        }
-        
-        $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        $unique_filename = $discount_type . '_p' . $passenger_index . '_' . time() . '_' . uniqid() . '.' . $file_ext;
-        $upload_path = $upload_dir . $unique_filename;
-        
-        if (move_uploaded_file($file['tmp_name'], $upload_path)) {
-            return 'uploads/discount_ids/' . $unique_filename;
-        }
-        
-        return null;
-    } catch (Exception $e) {
-        error_log("Error processing discount ID upload: " . $e->getMessage());
-        return null;
     }
 }
 
@@ -1043,7 +1143,7 @@ function getBookedSeats($conn, $busId, $date) {
                                     <!-- PayMaya QR Code Section -->
                                     <div id="paymaya-qr-section" class="qr-code-section" style="display: none;">
                                         <h6 class="text-success mb-3"><i class="fas fa-qrcode me-2"></i>Scan PayMaya QR Code</h6>
-                                        <img src="../assets/QRgcash.jpg" alt="GCash QR Code" class="img-fluid" style="max-width: 200px;">
+                                        <img src="../assets/QRgcash.jpg" alt="PayMaya QR Code" class="img-fluid" style="max-width: 200px;">
                                         <p class="qr-instructions mb-2">
                                             <strong>Instructions:</strong><br>
                                             1. Open your PayMaya app<br>
@@ -1486,6 +1586,372 @@ function getBookedSeats($conn, $busId, $date) {
                 domCache.passengerDetails.scrollIntoView({ behavior: 'smooth' });
             } else {
                 domCache.passengerDetails.style.display = 'none';
+            }
+        }
+
+        // Update passenger forms
+        function updatePassengerForms() {
+            domCache.passengerForms.innerHTML = '';
+            
+            for (let i = 1; i <= passengerCount; i++) {
+                const seatNum = selectedSeats[i] || 'Not selected';
+                
+                const passengerCard = document.createElement('div');
+                passengerCard.className = 'passenger-card';
+                passengerCard.innerHTML = `
+                    <div class="passenger-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-user me-2" aria-hidden="true"></i>Passenger ${i}
+                            <span class="badge bg-light text-dark ms-2">Seat ${seatNum}</span>
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label for="passenger_name_${i}" class="form-label">Passenger Name*</label>
+                                <input type="text" class="form-control" id="passenger_name_${i}" name="passenger_name_${i}" 
+                                    placeholder="Enter full name" required
+                                    oninput="sanitizeInput(this); updateSummary(); updateBookingForm();">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="seat_number_display_${i}" class="form-label">Seat Number</label>
+                                <input type="text" class="form-control bg-light" id="seat_number_display_${i}" 
+                                    value="Seat ${seatNum}" readonly>
+                                <input type="hidden" name="seat_number_${i}" value="${selectedSeats[i] || ''}">
+                            </div>
+                        </div>
+                        
+                        <div class="discount-selector">
+                            <h6><i class="fas fa-tag me-2" aria-hidden="true"></i>Discount Type</h6>
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input discount-radio" type="radio" 
+                                            name="discount_type_${i}" id="regular_${i}" value="regular" checked>
+                                        <label class="form-check-label" for="regular_${i}">Regular</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input discount-radio" type="radio" 
+                                            name="discount_type_${i}" id="student_${i}" value="student">
+                                        <label class="form-check-label" for="student_${i}">Student (20% off)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input discount-radio" type="radio" 
+                                            name="discount_type_${i}" id="senior_${i}" value="senior">
+                                        <label class="form-check-label" for="senior_${i}">Senior (20% off)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input discount-radio" type="radio" 
+                                            name="discount_type_${i}" id="pwd_${i}" value="pwd">
+                                        <label class="form-check-label" for="pwd_${i}">PWD (20% off)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="discount-upload-section" id="discount_upload_${i}" style="display: none;">
+                                <h6><i class="fas fa-id-card me-2" aria-hidden="true"></i>Upload ID Proof</h6>
+                                <input type="file" class="form-control" name="discount_id_proof_${i}" 
+                                    accept="image/*,.pdf" aria-describedby="discount_help_${i}">
+                                <small id="discount_help_${i}" class="text-muted">
+                                    Required for online payments. For counter payment, present ID at terminal.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                domCache.passengerForms.appendChild(passengerCard);
+            }
+            
+            // Setup enhanced discount handlers after creating all forms
+            setupEnhancedDiscountHandlers();
+            
+            // Setup real-time form syncing after creating forms
+            setupFormSyncing();
+            
+            if (Object.keys(selectedSeats).length === passengerCount) {
+                domCache.paymentSelection.style.display = 'block';
+            } else {
+                domCache.paymentSelection.style.display = 'none';
+            }
+        }
+
+        // Handle payment method change
+        function handlePaymentMethodChange() {
+            const proofSection = document.getElementById('payment-proof-section');
+            if (this.value === 'gcash' || this.value === 'paymaya') {
+                proofSection.style.display = 'block';
+                
+                // Make discount ID uploads required for online payments
+                document.querySelectorAll('.discount-upload-section').forEach(section => {
+                    if (section.style.display !== 'none') {
+                        section.classList.add('required');
+                    }
+                });
+            } else {
+                proofSection.style.display = 'none';
+                
+                // Remove required class for counter payments
+                document.querySelectorAll('.discount-upload-section').forEach(section => {
+                    section.classList.remove('required');
+                });
+            }
+            
+            updateBookingForm();
+            updateLastActivity();
+        }
+
+        // Update booking summary
+        function updateSummary() {
+            domCache.passengerSummary.innerHTML = '';
+            domCache.fareDetails.innerHTML = '';
+            
+            let totalAmount = 0;
+            let totalSavings = 0;
+            
+            for (let i = 1; i <= passengerCount; i++) {
+                const seatNum = selectedSeats[i] || 'Not selected';
+                
+                // Get the SPECIFIC discount type for THIS passenger
+                const discountRadio = document.querySelector(`input[name="discount_type_${i}"]:checked`);
+                const discountType = discountRadio ? discountRadio.value : 'regular';
+                
+                let fare = farePerPerson;
+                let discountText = '';
+                let discountAmount = 0;
+                
+                // Apply discount ONLY for this specific passenger's discount type
+                if (discountType !== 'regular') {
+                    discountAmount = farePerPerson * 0.2; // 20% discount
+                    fare = farePerPerson * 0.8;
+                    discountText = ` (${discountType} - 20% off)`;
+                    totalSavings += discountAmount;
+                }
+                
+                totalAmount += fare;
+                
+                // Debug logging
+                console.log(`Passenger ${i}: Discount Type = ${discountType}, Base Fare = ${farePerPerson}, Final Fare = ${fare}, Discount Amount = ${discountAmount}`);
+                
+                const summaryItem = document.createElement('div');
+                summaryItem.className = 'passenger-summary';
+                summaryItem.innerHTML = `
+                    <strong>Passenger ${i}</strong><br>
+                    <small>Seat: ${seatNum}${discountText}</small><br>
+                    <small>Fare: ₱${fare.toFixed(2)}</small>
+                    ${discountAmount > 0 ? `<br><small class="text-success">Saved: ₱${discountAmount.toFixed(2)}</small>` : ''}
+                `;
+                domCache.passengerSummary.appendChild(summaryItem);
+                
+                const fareItem = document.createElement('div');
+                fareItem.className = 'd-flex justify-content-between';
+                fareItem.innerHTML = `
+                    <span>Passenger ${i} (Seat ${seatNum})${discountText}:</span> 
+                    <span>₱${fare.toFixed(2)}</span>
+                `;
+                domCache.fareDetails.appendChild(fareItem);
+            }
+            
+            // Add total savings display if there are any savings
+            if (totalSavings > 0) {
+                const savingsItem = document.createElement('div');
+                savingsItem.className = 'd-flex justify-content-between text-success fw-bold border-top pt-2 mt-2';
+                savingsItem.innerHTML = `
+                    <span>Total Savings:</span> 
+                    <span>₱${totalSavings.toFixed(2)}</span>
+                `;
+                domCache.fareDetails.appendChild(savingsItem);
+            }
+            
+            domCache.totalAmount.innerHTML = `Total: ₱${totalAmount.toFixed(2)}`;
+            
+            // Update booking form if all required data is available
+            updateBookingForm();
+            updateLastActivity();
+        }
+        
+        // Update booking form data
+        function updateBookingForm() {
+            const allSeatsSelected = Object.keys(selectedSeats).length === passengerCount;
+            const paymentMethodSelected = document.querySelector('input[name="payment_method"]:checked');
+            
+            if (allSeatsSelected && paymentMethodSelected) {
+                domCache.bookingForm.style.display = 'block';
+                
+                // Set form values
+                domCache.formBusId.value = selectedBus.id;
+                domCache.formPassengerCount.value = passengerCount;
+                domCache.formPaymentMethod.value = paymentMethodSelected.value;
+                
+                // Clear and regenerate passenger data for form submission
+                domCache.formPassengerData.innerHTML = '';
+                
+                for (let i = 1; i <= passengerCount; i++) {
+                    const seatNum = selectedSeats[i];
+                    
+                    // Get the SPECIFIC discount type for THIS passenger - FIXED
+                    const discountRadio = document.querySelector(`input[name="discount_type_${i}"]:checked`);
+                    const discountType = discountRadio ? discountRadio.value : 'regular';
+                    
+                    const nameInput = document.querySelector(`input[name="passenger_name_${i}"]`);
+                    const passengerName = nameInput ? nameInput.value.trim() : '';
+                    
+                    // Debug logging to verify correct discount types
+                    console.log(`Form Update - Passenger ${i}: Name=${passengerName}, Seat=${seatNum}, Discount=${discountType}`);
+                    
+                    // Create hidden inputs with unique IDs to prevent conflicts
+                    const hiddenInputsHTML = `
+                        <input type="hidden" name="passenger_name_${i}" value="${passengerName}" id="form_passenger_name_${i}">
+                        <input type="hidden" name="seat_number_${i}" value="${seatNum}" id="form_seat_number_${i}">
+                        <input type="hidden" name="discount_type_${i}" value="${discountType}" id="form_discount_type_${i}">
+                    `;
+                    
+                    domCache.formPassengerData.innerHTML += hiddenInputsHTML;
+                }
+                
+                // Additional debug: Log all form data that will be submitted
+                console.log('=== FORM DATA TO BE SUBMITTED ===');
+                const formData = new FormData(domCache.bookingForm);
+                for (let [key, value] of formData.entries()) {
+                    if (key.includes('discount_type') || key.includes('passenger_name') || key.includes('seat_number')) {
+                        console.log(`${key}: ${value}`);
+                    }
+                }
+                console.log('=== END FORM DATA ===');
+            } else {
+                domCache.bookingForm.style.display = 'none';
+            }
+        }
+        
+        // Handle form submission
+        function handleFormSubmission(e) {
+            console.log('=== FORM SUBMISSION STARTED ===');
+            
+            // First, update the form data to ensure we have the latest values
+            updateBookingForm();
+            
+            // Then sync any additional data
+            syncFormData();
+            
+            let isValid = true;
+            const errors = [];
+            
+            // Validate all passenger data
+            for (let i = 1; i <= passengerCount; i++) {
+                // Check passenger name
+                const nameInput = document.querySelector(`input[name="passenger_name_${i}"]`);
+                const name = nameInput ? nameInput.value.trim() : '';
+                
+                if (!name) {
+                    errors.push(`Please enter name for Passenger ${i}`);
+                    isValid = false;
+                    if (nameInput) nameInput.classList.add('is-invalid');
+                } else {
+                    if (nameInput) nameInput.classList.remove('is-invalid');
+                }
+                
+                // Check seat selection
+                if (!selectedSeats[i]) {
+                    errors.push(`Please select a seat for Passenger ${i}`);
+                    isValid = false;
+                }
+                
+                // Validate discount type selection
+                const discountRadio = document.querySelector(`input[name="discount_type_${i}"]:checked`);
+                if (!discountRadio) {
+                    errors.push(`Please select discount type for Passenger ${i}`);
+                    isValid = false;
+                } else {
+                    console.log(`Passenger ${i} discount validated: ${discountRadio.value}`);
+                }
+            }
+            
+            // Check payment method
+            const paymentMethod = document.querySelector('input[name="payment_method"]:checked');
+            if (!paymentMethod) {
+                errors.push('Please select a payment method');
+                isValid = false;
+            } else {
+                const paymentValue = paymentMethod.value;
+                
+                // Check payment proof for online payments
+                if ((paymentValue === 'gcash' || paymentValue === 'paymaya')) {
+                    const paymentProofInput = document.getElementById('payment_proof');
+                    if (!paymentProofInput.files || paymentProofInput.files.length === 0) {
+                        errors.push('Please upload payment proof for online payment');
+                        isValid = false;
+                        paymentProofInput.classList.add('is-invalid');
+                    } else {
+                        paymentProofInput.classList.remove('is-invalid');
+                    }
+                    
+                    // Check discount IDs for online payments
+                    for (let i = 1; i <= passengerCount; i++) {
+                        const discountRadio = document.querySelector(`input[name="discount_type_${i}"]:checked`);
+                        if (discountRadio && discountRadio.value !== 'regular') {
+                            const idProofInput = document.querySelector(`input[name="discount_id_proof_${i}"]`);
+                            if (!idProofInput || !idProofInput.files || idProofInput.files.length === 0) {
+                                errors.push(`Please upload ID proof for Passenger ${i} (${discountRadio.value} discount)`);
+                                isValid = false;
+                                if (idProofInput) idProofInput.classList.add('is-invalid');
+                            } else {
+                                if (idProofInput) idProofInput.classList.remove('is-invalid');
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (!isValid) {
+                e.preventDefault();
+                showAlert('Please fix the following errors:\n\n' + errors.join('\n'));
+                return false;
+            }
+            
+            // Final validation: Log what will actually be submitted
+            console.log('=== FINAL FORM DATA BEFORE SUBMISSION ===');
+            const finalFormData = new FormData(domCache.bookingForm);
+            for (let [key, value] of finalFormData.entries()) {
+                console.log(`${key}: ${value}`);
+            }
+            console.log('=== END FINAL FORM DATA ===');
+            
+            updateLastActivity();
+            return true;
+        }
+
+        function setupEnhancedDiscountHandlers() {
+            // This function should be called after creating passenger forms
+            for (let i = 1; i <= passengerCount; i++) {
+                const discountRadios = document.querySelectorAll(`input[name="discount_type_${i}"]`);
+                discountRadios.forEach(radio => {
+                    radio.addEventListener('change', function(e) {
+                        const passengerIndex = i;
+                        const uploadSection = document.getElementById(`discount_upload_${passengerIndex}`);
+                        
+                        if (this.value !== 'regular') {
+                            uploadSection.style.display = 'block';
+                        } else {
+                            uploadSection.style.display = 'none';
+                        }
+                        
+                        // Critical: Update summary and form data immediately
+                        updateSummary();
+                        updateBookingForm();
+                        
+                        // Debug logging with more detail
+                        console.log(`Passenger ${passengerIndex} discount changed from ${e.target.dataset.previousValue || 'unknown'} to: ${this.value}`);
+                        
+                        // Store previous value for debugging
+                        e.target.dataset.previousValue = this.value;
+                    });
+                });
             }
         }
 

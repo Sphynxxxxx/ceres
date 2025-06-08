@@ -312,6 +312,32 @@ try {
             margin: 0 10px;
             color: #aaa;
         }
+
+        /* Filter Button Styles */
+        .booking-filters {
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-btn {
+            transition: all 0.3s ease;
+        }
+
+        .filter-btn.active {
+            background-color: #ffc107 !important;
+            border-color: #ffc107 !important;
+            color: #000 !important;
+        }
+
+        .filter-btn:hover {
+            background-color: #e0a800;
+            border-color: #d39e00;
+            color: #000;
+        }
+
+        /* Hidden booking items */
+        .booking-item.hidden {
+            display: none !important;
+        }
         
     </style>
 </head>
@@ -425,106 +451,126 @@ try {
                                 <a href="booking.php" class="btn btn-warning mt-2">Book Your First Trip</a>
                             </div>
                         <?php else: ?>
-                            <div class="booking-filters mb-3">
-                                <div class="btn-group" role="group">
-                                    <button type="button" class="btn btn-outline-secondary active filter-btn" data-filter="all">All</button>
-                                    <button type="button" class="btn btn-outline-success filter-btn" data-filter="confirmed">Confirmed</button>
-                                    <button type="button" class="btn btn-outline-danger filter-btn" data-filter="cancelled">Cancelled</button>
+                            <!-- Filter Buttons -->
+                            <div class="booking-filters mb-4">
+                                <div class="btn-group" role="group" aria-label="Booking filter">
+                                    <button type="button" class="btn btn-outline-secondary active filter-btn" data-filter="all">
+                                        <i class="fas fa-list me-1"></i>All Bookings
+                                    </button>
+                                    <button type="button" class="btn btn-outline-success filter-btn" data-filter="confirmed">
+                                        <i class="fas fa-check-circle me-1"></i>Confirmed
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger filter-btn" data-filter="cancelled">
+                                        <i class="fas fa-times-circle me-1"></i>Cancelled
+                                    </button>
                                 </div>
                             </div>
 
-                            <?php foreach ($bookings as $booking): ?>
-                                <div class="booking-card card booking-item" data-status="<?php echo $booking['booking_status']; ?>">
-                                    <div class="card-header booking-header d-flex justify-content-between align-items-center">
-                                        <div>
-                                            <span class="fw-bold">Booking #<?php echo $booking['id']; ?></span>
-                                            <span class="text-muted ms-2">(<?php echo date('M d, Y', strtotime($booking['created_at'])); ?>)</span>
+                            <!-- Bookings List -->
+                            <div id="bookings-container">
+                                <?php foreach ($bookings as $booking): ?>
+                                    <div class="booking-card card booking-item" data-status="<?php echo $booking['booking_status']; ?>">
+                                        <div class="card-header booking-header d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <span class="fw-bold">Booking #<?php echo $booking['id']; ?></span>
+                                                <span class="text-muted ms-2">(<?php echo date('M d, Y', strtotime($booking['created_at'])); ?>)</span>
+                                            </div>
+                                            <?php
+                                            $badge_class = '';
+                                            switch ($booking['booking_status']) {
+                                                case 'confirmed':
+                                                    $badge_class = 'bg-success';
+                                                    break;
+                                                case 'cancelled':
+                                                    $badge_class = 'bg-danger';
+                                                    break;
+                                                default:
+                                                    $badge_class = 'bg-secondary';
+                                                    break;
+                                            }
+                                            ?>
+                                            <span class="badge booking-badge <?php echo $badge_class; ?>">
+                                                <?php echo ucfirst($booking['booking_status']); ?>
+                                            </span>
                                         </div>
-                                        <?php
-                                        $badge_class = '';
-                                        switch ($booking['booking_status']) {
-                                            case 'confirmed':
-                                                $badge_class = 'bg-success';
-                                                break;
-                                            case 'cancelled':
-                                                $badge_class = 'bg-danger';
-                                                break;
-                                        }
-                                        ?>
-                                        <span class="badge booking-badge <?php echo $badge_class; ?>">
-                                            <?php echo ucfirst($booking['booking_status']); ?>
-                                        </span>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="booking-details">
-                                            <div class="route-info">
-                                                <span><?php echo htmlspecialchars(ucfirst($booking['origin'])); ?></span>
-                                                <span class="route-arrow"><i class="fas fa-long-arrow-alt-right"></i></span>
-                                                <span><?php echo htmlspecialchars(ucfirst($booking['destination'])); ?></span>
-                                            </div>
-                                            
-                                            <div class="row">
-                                                <div class="col-md-6">
-                                                    <p><i class="fas fa-hashtag me-2"></i><strong>Trip Number:</strong> <?php echo htmlspecialchars($booking['trip_number'] ?: 'N/A'); ?></p>
-                                                    <p><i class="fas fa-calendar-alt me-2"></i><strong>Travel Date:</strong> <?php echo date('F d, Y', strtotime($booking['booking_date'])); ?></p>
-                                                    <p><i class="fas fa-clock me-2"></i><strong>Departure:</strong> 
-                                                        <?php echo $booking['departure_time'] ? date('h:i A', strtotime($booking['departure_time'])) : 'Check schedule'; ?>
-                                                    </p>
-                                                    <p><i class="fas fa-clock me-2"></i><strong>Arrival:</strong> 
-                                                        <?php echo $booking['arrival_time'] ? date('h:i A', strtotime($booking['arrival_time'])) : 'Check schedule'; ?>
-                                                    </p>
+                                        <div class="card-body">
+                                            <div class="booking-details">
+                                                <div class="route-info">
+                                                    <span><?php echo htmlspecialchars(ucfirst($booking['origin'])); ?></span>
+                                                    <span class="route-arrow"><i class="fas fa-long-arrow-alt-right"></i></span>
+                                                    <span><?php echo htmlspecialchars(ucfirst($booking['destination'])); ?></span>
                                                 </div>
-                                                <div class="col-md-6">
-                                                    <p><i class="fas fa-bus me-2"></i><strong>Bus Type:</strong> <?php echo htmlspecialchars($booking['bus_type']); ?></p>
-                                                    <p><i class="fas fa-id-card me-2"></i><strong>Plate #:</strong> <?php echo htmlspecialchars($booking['plate_number']); ?></p>
-                                                    <p><i class="fas fa-chair me-2"></i><strong>Seat #:</strong> <?php echo $booking['seat_number']; ?></p>
-                                                    <p><i class="fas fa-money-bill-wave me-2"></i><strong>Fare:</strong> ₱<?php echo number_format($booking['fare'], 2); ?></p>
-                                                    <p><i class="fas fa-credit-card me-2"></i><strong>Payment Method:</strong> <?php echo htmlspecialchars(ucfirst($booking['payment_method'] ?: 'N/A')); ?></p>
-                                                    <p>
-                                                        <i class="fas fa-check-circle me-2"></i><strong>Payment Status:</strong> 
-                                                        <?php 
-                                                        // Fix the misspelled status
-                                                        $payment_status = $booking['payment_status'];
-                                                        if ($payment_status === 'awaiting_verificatio') {
-                                                            $payment_status = 'awaiting_verification';
-                                                        }
-                                                        
-                                                        $payment_status_class = '';
-                                                        switch (strtolower($payment_status)) {
-                                                            case 'paid':
-                                                                $payment_status_class = 'text-success';
-                                                                break;
-                                                            case 'pending':
-                                                                $payment_status_class = 'text-warning';
-                                                                break;
-                                                            case 'awaiting_verification':
-                                                                $payment_status_class = 'text-info';
-                                                                break;
-                                                            case 'failed':
-                                                                $payment_status_class = 'text-danger';
-                                                                break;
-                                                        }
-                                                        ?>
-                                                        <span class="<?php echo $payment_status_class; ?>">
-                                                            <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $payment_status ?: 'N/A'))); ?>
-                                                        </span>
-                                                    </p>
+                                                
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <p><i class="fas fa-hashtag me-2"></i><strong>Trip Number:</strong> <?php echo htmlspecialchars($booking['trip_number'] ?: 'N/A'); ?></p>
+                                                        <p><i class="fas fa-calendar-alt me-2"></i><strong>Travel Date:</strong> <?php echo date('F d, Y', strtotime($booking['booking_date'])); ?></p>
+                                                        <p><i class="fas fa-clock me-2"></i><strong>Departure:</strong> 
+                                                            <?php echo $booking['departure_time'] ? date('h:i A', strtotime($booking['departure_time'])) : 'Check schedule'; ?>
+                                                        </p>
+                                                        <p><i class="fas fa-clock me-2"></i><strong>Arrival:</strong> 
+                                                            <?php echo $booking['arrival_time'] ? date('h:i A', strtotime($booking['arrival_time'])) : 'Check schedule'; ?>
+                                                        </p>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <p><i class="fas fa-bus me-2"></i><strong>Bus Type:</strong> <?php echo htmlspecialchars($booking['bus_type']); ?></p>
+                                                        <p><i class="fas fa-id-card me-2"></i><strong>Plate #:</strong> <?php echo htmlspecialchars($booking['plate_number']); ?></p>
+                                                        <p><i class="fas fa-chair me-2"></i><strong>Seat #:</strong> <?php echo $booking['seat_number']; ?></p>
+                                                        <p><i class="fas fa-money-bill-wave me-2"></i><strong>Fare:</strong> ₱<?php echo number_format($booking['fare'], 2); ?></p>
+                                                        <p><i class="fas fa-credit-card me-2"></i><strong>Payment Method:</strong> <?php echo htmlspecialchars(ucfirst($booking['payment_method'] ?: 'N/A')); ?></p>
+                                                        <p>
+                                                            <i class="fas fa-check-circle me-2"></i><strong>Payment Status:</strong> 
+                                                            <?php 
+                                                            // Fix the misspelled status
+                                                            $payment_status = $booking['payment_status'];
+                                                            if ($payment_status === 'awaiting_verificatio') {
+                                                                $payment_status = 'awaiting_verification';
+                                                            }
+                                                            
+                                                            $payment_status_class = '';
+                                                            switch (strtolower($payment_status)) {
+                                                                case 'paid':
+                                                                    $payment_status_class = 'text-success';
+                                                                    break;
+                                                                case 'pending':
+                                                                    $payment_status_class = 'text-warning';
+                                                                    break;
+                                                                case 'awaiting_verification':
+                                                                    $payment_status_class = 'text-info';
+                                                                    break;
+                                                                case 'failed':
+                                                                    $payment_status_class = 'text-danger';
+                                                                    break;
+                                                            }
+                                                            ?>
+                                                            <span class="<?php echo $payment_status_class; ?>">
+                                                                <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $payment_status ?: 'N/A'))); ?>
+                                                            </span>
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                            </div>
 
-                                            <?php if ($booking['booking_status'] !== 'cancelled'): ?>
-                                                <div class="booking-actions">
-                                                    <button type="button" class="btn btn-outline-danger btn-sm cancel-booking-btn" 
-                                                            data-bs-toggle="modal" 
-                                                            data-bs-target="#cancelModal<?php echo $booking['id']; ?>">
-                                                        <i class="fas fa-times-circle me-1"></i> Cancel Booking
-                                                    </button>
-                                                </div>
-                                            <?php endif; ?>
+                                                <?php if ($booking['booking_status'] !== 'cancelled'): ?>
+                                                    <div class="booking-actions">
+                                                        <button type="button" class="btn btn-outline-danger btn-sm cancel-booking-btn" 
+                                                                data-bs-toggle="modal" 
+                                                                data-bs-target="#cancelModal<?php echo $booking['id']; ?>">
+                                                            <i class="fas fa-times-circle me-1"></i> Cancel Booking
+                                                        </button>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            <?php endforeach; ?>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <!-- No results message (initially hidden) -->
+                            <div id="no-results" class="empty-state" style="display: none;">
+                                <i class="fas fa-search fa-3x mb-3"></i>
+                                <h4>No Bookings Found</h4>
+                                <p class="text-muted">No bookings match the selected filter.</p>
+                            </div>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -532,6 +578,7 @@ try {
         </div>
     </div>
 
+    <!-- Cancel Booking Modals -->
     <?php foreach ($bookings as $booking): ?>
         <div class="modal fade" id="cancelModal<?php echo $booking['id']; ?>" tabindex="-1" 
             aria-labelledby="cancelModalLabel<?php echo $booking['id']; ?>" aria-hidden="true">
@@ -652,89 +699,111 @@ try {
         </div>
     </footer>
 
-    <!-- Make sure this comes after jQuery and before your other scripts -->
+    <!-- Bootstrap JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            console.log("DOM Content Loaded");
 
+            // Initialize Bootstrap components
             if (typeof bootstrap !== 'undefined') {
                 console.log("Bootstrap is loaded correctly");
                 
-                // Initialize modals directly
+                // Initialize modals
                 document.querySelectorAll('.modal').forEach(function(modalEl) {
-                    var modal = new bootstrap.Modal(modalEl);
+                    new bootstrap.Modal(modalEl);
                 });
                 
-                // Attach manual click handlers to the cancel buttons
-                document.querySelectorAll('.cancel-booking-btn').forEach(function(button) {
-                    button.addEventListener('click', function() {
-                        var targetModalId = this.getAttribute('data-bs-target');
-                        var modalElement = document.querySelector(targetModalId);
-                        
-                        if (modalElement) {
-                            var modal = new bootstrap.Modal(modalElement);
-                            modal.show();
-                        } else {
-                            console.error("Modal element not found:", targetModalId);
-                        }
-                    });
+                // Initialize tooltips
+                var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+                var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                    return new bootstrap.Tooltip(tooltipTriggerEl);
                 });
             } else {
-                console.error("Bootstrap is not loaded properly. Check your script includes.");
+                console.error("Bootstrap is not loaded properly");
             }
-            
-            // Filter bookings by status
+
+            // FILTER FUNCTIONALITY - This is the main fix
             const filterButtons = document.querySelectorAll('.filter-btn');
             const bookingItems = document.querySelectorAll('.booking-item');
+            const noResultsDiv = document.getElementById('no-results');
+            
+            console.log("Filter buttons found:", filterButtons.length);
+            console.log("Booking items found:", bookingItems.length);
             
             filterButtons.forEach(button => {
                 button.addEventListener('click', function() {
                     const filterValue = this.getAttribute('data-filter');
+                    console.log("Filter clicked:", filterValue);
                     
-                    // Update active button
+                    // Update active button state
                     filterButtons.forEach(btn => {
                         btn.classList.remove('active');
                     });
                     this.classList.add('active');
                     
-                    // Filter items
+                    // Filter booking items
+                    let visibleCount = 0;
                     bookingItems.forEach(item => {
-                        if (filterValue === 'all' || item.getAttribute('data-status') === filterValue) {
+                        const itemStatus = item.getAttribute('data-status');
+                        console.log("Item status:", itemStatus, "Filter:", filterValue);
+                        
+                        if (filterValue === 'all' || itemStatus === filterValue) {
                             item.style.display = 'block';
+                            item.classList.remove('hidden');
+                            visibleCount++;
                         } else {
                             item.style.display = 'none';
+                            item.classList.add('hidden');
                         }
                     });
+                    
+                    console.log("Visible items after filter:", visibleCount);
+                    
+                    // Show/hide "no results" message
+                    if (visibleCount === 0) {
+                        noResultsDiv.style.display = 'block';
+                    } else {
+                        noResultsDiv.style.display = 'none';
+                    }
                 });
             });
-            
-            // Initialize tooltips
-            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-                return new bootstrap.Tooltip(tooltipTriggerEl);
-            });
-            
-            // Show/hide "other reason" text area when "Other" is selected
-            const reasonSelects = document.querySelectorAll('select[name="cancel_reason"]');
-            reasonSelects.forEach(select => {
-                select.addEventListener('change', function() {
-                    const bookingId = this.id.replace('cancel_reason', '');
-                    const otherReasonDiv = document.getElementById('otherReasonDiv' + bookingId);
+
+            // Cancel booking modal functionality
+            document.querySelectorAll('.cancel-booking-btn').forEach(function(button) {
+                button.addEventListener('click', function() {
+                    var targetModalId = this.getAttribute('data-bs-target');
+                    var modalElement = document.querySelector(targetModalId);
                     
-                    if (this.value === 'Other') {
-                        otherReasonDiv.style.display = 'block';
-                        document.getElementById('other_reason' + bookingId).setAttribute('required', 'required');
+                    if (modalElement) {
+                        var modal = new bootstrap.Modal(modalElement);
+                        modal.show();
                     } else {
-                        otherReasonDiv.style.display = 'none';
-                        document.getElementById('other_reason' + bookingId).removeAttribute('required');
+                        console.error("Modal element not found:", targetModalId);
                     }
                 });
             });
             
-            // Custom form validation for cancellation
-            const cancelForms = document.querySelectorAll('form');
-            cancelForms.forEach(form => {
+            // Show/hide "other reason" text area when "Other" is selected
+            document.querySelectorAll('select[name="cancel_reason"]').forEach(select => {
+                select.addEventListener('change', function() {
+                    const bookingId = this.id.replace('cancel_reason', '');
+                    const otherReasonDiv = document.getElementById('otherReasonDiv' + bookingId);
+                    const otherReasonTextarea = document.getElementById('other_reason' + bookingId);
+                    
+                    if (this.value === 'Other') {
+                        otherReasonDiv.style.display = 'block';
+                        otherReasonTextarea.setAttribute('required', 'required');
+                    } else {
+                        otherReasonDiv.style.display = 'none';
+                        otherReasonTextarea.removeAttribute('required');
+                    }
+                });
+            });
+            
+            // Form validation for cancellation
+            document.querySelectorAll('form').forEach(form => {
                 form.addEventListener('submit', function(e) {
                     if (this.querySelector('select[name="cancel_reason"]')) {
                         const reasonSelect = this.querySelector('select[name="cancel_reason"]');
@@ -761,24 +830,12 @@ try {
                     return true;
                 });
             });
-        });
 
-        document.addEventListener('DOMContentLoaded', function() {
-            // Show/hide other reason field when "Other" is selected
-            document.querySelectorAll('select[name="cancel_reason"]').forEach(select => {
-                select.addEventListener('change', function() {
-                    const bookingId = this.id.replace('cancel_reason', '');
-                    const otherReasonDiv = document.getElementById('otherReasonDiv' + bookingId);
-                    
-                    if (this.value === 'Other') {
-                        otherReasonDiv.style.display = 'block';
-                        document.getElementById('other_reason' + bookingId).setAttribute('required', 'required');
-                    } else {
-                        otherReasonDiv.style.display = 'none';
-                        document.getElementById('other_reason' + bookingId).removeAttribute('required');
-                    }
-                });
+            // Debug: Log all booking statuses
+            bookingItems.forEach((item, index) => {
+                console.log(`Booking ${index + 1} status:`, item.getAttribute('data-status'));
             });
+        });
     </script>
 </body>
 </html>

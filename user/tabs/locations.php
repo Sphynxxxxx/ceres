@@ -88,7 +88,7 @@ try {
 
 // Define major terminals and their details - EXPANDED
 $terminals = [
-    // Iloilo City
+    // Iloilo City (UPDATED with new locations)
     'iloilo' => [
         'name' => 'Iloilo City Terminal (Tagbak)',
         'address' => 'Ceres Bus Terminal, Tagbak, Jaro, Iloilo City',
@@ -111,6 +111,46 @@ $terminals = [
         'contact' => '(033) 336-7777',
         'facilities' => ['Waiting Area', 'Ticket Booths', 'Rest Rooms'],
         'operating_hours' => '5:00 AM - 8:00 PM Daily',
+        'region' => 'Iloilo City'
+    ],
+    'barotac_viejo' => [
+        'name' => 'Barotac Viejo Terminal',
+        'address' => 'Barotac Viejo, Iloilo',
+        'contact' => '(033) 315-4444',
+        'facilities' => ['Waiting Area', 'Ticket Booths', 'Rest Rooms', 'Food Stalls'],
+        'operating_hours' => '4:00 AM - 8:00 PM Daily',
+        'region' => 'Iloilo City'
+    ],
+    'san_dionisio' => [
+        'name' => 'San Dionisio Terminal',
+        'address' => 'San Dionisio, Iloilo',
+        'contact' => '(033) 317-5555',
+        'facilities' => ['Waiting Area', 'Ticket Booths', 'Rest Rooms'],
+        'operating_hours' => '5:00 AM - 7:00 PM Daily',
+        'region' => 'Iloilo City'
+    ],
+    'carles' => [
+        'name' => 'Carles Terminal (Ajus)',
+        'address' => 'Carles (Ajus), Iloilo',
+        'contact' => '(033) 325-6666',
+        'facilities' => ['Waiting Area', 'Ticket Booths', 'Rest Rooms', 'Food Stalls'],
+        'operating_hours' => '4:00 AM - 8:00 PM Daily',
+        'region' => 'Iloilo City'
+    ],
+    'sara' => [
+        'name' => 'Sara Terminal',
+        'address' => 'Sara, Iloilo',
+        'contact' => '(033) 323-7777',
+        'facilities' => ['Waiting Area', 'Ticket Booths', 'Rest Rooms'],
+        'operating_hours' => '5:00 AM - 7:00 PM Daily',
+        'region' => 'Iloilo City'
+    ],
+    'balasan' => [
+        'name' => 'Balasan Terminal',
+        'address' => 'Balasan, Iloilo',
+        'contact' => '(033) 324-8888',
+        'facilities' => ['Waiting Area', 'Ticket Booths', 'Rest Rooms', 'Food Stalls'],
+        'operating_hours' => '4:00 AM - 8:00 PM Daily',
         'region' => 'Iloilo City'
     ],
     

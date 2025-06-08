@@ -299,13 +299,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="form-floating">
                     <div class="input-group">
                         <input type="password" class="form-control" id="password" name="password" 
-                               placeholder="Password" required autocomplete="current-password"
-                               style="border-radius: 12px 0 0 12px; padding: 20px 15px 5px 15px;">
+                            placeholder=" " required autocomplete="current-password"
+                            style="border-radius: 12px 0 0 12px; padding: 20px 15px 5px 15px;">
                         <span class="input-group-text password-toggle" onclick="togglePassword()">
                             <i class="fas fa-eye" id="toggleIcon"></i>
                         </span>
                     </div>
-                    <label for="password" style="margin-left: 15px;">
+                    <label for="password">
                         <i class="fas fa-lock me-2"></i>Password
                     </label>
                 </div>

@@ -192,8 +192,8 @@ try {
                         <span>Inquiries</span>
                     </a>
                 </li>
-                <li>
-                    <a class="dropdown-item text-danger" href="admin/tabs/logout.php">
+                <li class="nav-item">
+                    <a class="nav-link text-danger" href="admin/tabs/logout.php">
                         <i class="fas fa-sign-out-alt me-2"></i>Logout
                     </a>
                 </li>
