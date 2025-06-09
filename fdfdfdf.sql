@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jun 09, 2025 at 03:12 PM
+-- Generation Time: Jun 09, 2025 at 04:05 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -11,13 +11,14 @@ SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
 SET time_zone = "+00:00";
 
+
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
 /*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Database: `bus_booking`
+-- Database: `fdfdfdf`
 --
 
 DELIMITER $$
@@ -348,6 +349,49 @@ DELIMITER ;
 -- --------------------------------------------------------
 
 --
+-- Stand-in structure for view `booking_details_view`
+-- (See below for the actual view)
+--
+CREATE TABLE `booking_details_view` (
+`id` int(11)
+,`booking_reference` varchar(20)
+,`passenger_name` varchar(100)
+,`seat_number` int(11)
+,`booking_date` date
+,`booking_status` enum('pending','confirmed','cancelled','completed','no_show')
+,`group_booking_id` varchar(50)
+,`discount_type` varchar(20)
+,`discount_verified` tinyint(1)
+,`base_fare` decimal(10,2)
+,`discount_amount` decimal(10,2)
+,`final_fare` decimal(10,2)
+,`payment_method` varchar(50)
+,`payment_status` varchar(20)
+,`boarding_status` enum('not_boarded','boarded','completed')
+,`created_at` datetime
+,`booker_first_name` varchar(50)
+,`booker_last_name` varchar(50)
+,`booker_email` varchar(100)
+,`booker_phone` varchar(20)
+,`bus_type` varchar(50)
+,`plate_number` varchar(20)
+,`route_name` varchar(255)
+,`driver_name` varchar(100)
+,`conductor_name` varchar(100)
+,`departure_time` time
+,`arrival_time` time
+,`trip_number` varchar(20)
+,`route_fare` decimal(10,2)
+,`origin` varchar(255)
+,`destination` varchar(255)
+,`distance` decimal(10,2)
+,`estimated_duration` varchar(50)
+,`calculated_fare` decimal(12,3)
+);
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `booking_groups`
 --
 
@@ -408,6 +452,27 @@ CREATE TABLE `buses` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `bus_utilization_view`
+-- (See below for the actual view)
+--
+CREATE TABLE `bus_utilization_view` (
+`bus_id` int(11)
+,`plate_number` varchar(20)
+,`bus_type` varchar(50)
+,`seat_capacity` int(11)
+,`route_name` varchar(255)
+,`status` enum('Active','Inactive','Under Maintenance')
+,`travel_date` date
+,`total_bookings` bigint(21)
+,`confirmed_bookings` bigint(21)
+,`cancelled_bookings` bigint(21)
+,`occupancy_rate` decimal(26,2)
+,`total_revenue` decimal(32,2)
+);
 
 -- --------------------------------------------------------
 
@@ -474,6 +539,53 @@ CREATE TABLE `discount_verifications` (
 -- --------------------------------------------------------
 
 --
+-- Stand-in structure for view `group_booking_analytics`
+-- (See below for the actual view)
+--
+CREATE TABLE `group_booking_analytics` (
+`travel_date` date
+,`total_group_bookings` bigint(21)
+,`total_group_passengers` decimal(42,0)
+,`avg_group_size` decimal(24,4)
+,`largest_group_size` bigint(21)
+,`total_group_revenue` decimal(54,2)
+,`total_group_discounts` decimal(54,2)
+,`payment_method` varchar(50)
+,`payment_status` varchar(20)
+,`primary_discount_type` longtext
+);
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `group_booking_summary`
+-- (See below for the actual view)
+--
+CREATE TABLE `group_booking_summary` (
+`group_booking_id` varchar(50)
+,`total_passengers` bigint(21)
+,`total_base_fare` decimal(32,2)
+,`total_discount` decimal(32,2)
+,`total_amount` decimal(32,2)
+,`passengers_list` mediumtext
+,`discount_types` mediumtext
+,`booking_date` date
+,`payment_method` varchar(50)
+,`payment_status` varchar(20)
+,`created_at` datetime
+,`booker_first_name` varchar(50)
+,`booker_last_name` varchar(50)
+,`booker_email` varchar(100)
+,`plate_number` varchar(20)
+,`route_name` varchar(255)
+,`departure_time` time
+,`arrival_time` time
+,`trip_number` varchar(20)
+);
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `payment_verifications`
 --
 
@@ -495,6 +607,24 @@ CREATE TABLE `payment_verifications` (
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `revenue_summary_view`
+-- (See below for the actual view)
+--
+CREATE TABLE `revenue_summary_view` (
+`revenue_date` date
+,`total_bookings` bigint(21)
+,`confirmed_bookings` bigint(21)
+,`total_revenue` decimal(32,2)
+,`total_discounts` decimal(32,2)
+,`counter_revenue` decimal(32,2)
+,`gcash_revenue` decimal(32,2)
+,`paymaya_revenue` decimal(32,2)
+,`average_fare` decimal(14,6)
+);
 
 -- --------------------------------------------------------
 
@@ -598,40 +728,45 @@ INSERT INTO `users` (`id`, `first_name`, `last_name`, `gender`, `birthdate`, `co
 --
 -- Structure for view `booking_details_view`
 --
+DROP TABLE IF EXISTS `booking_details_view`;
 
-CREATE VIEW `booking_details_view` AS SELECT `b`.`id` AS `id`, `b`.`booking_reference` AS `booking_reference`, `b`.`passenger_name` AS `passenger_name`, `b`.`seat_number` AS `seat_number`, `b`.`booking_date` AS `booking_date`, `b`.`booking_status` AS `booking_status`, `b`.`group_booking_id` AS `group_booking_id`, `b`.`discount_type` AS `discount_type`, `b`.`discount_verified` AS `discount_verified`, `b`.`base_fare` AS `base_fare`, `b`.`discount_amount` AS `discount_amount`, `b`.`final_fare` AS `final_fare`, `b`.`payment_method` AS `payment_method`, `b`.`payment_status` AS `payment_status`, `b`.`boarding_status` AS `boarding_status`, `b`.`created_at` AS `created_at`, `u`.`first_name` AS `booker_first_name`, `u`.`last_name` AS `booker_last_name`, `u`.`email` AS `booker_email`, `u`.`contact_number` AS `booker_phone`, `bus`.`bus_type` AS `bus_type`, `bus`.`plate_number` AS `plate_number`, `bus`.`route_name` AS `route_name`, `bus`.`driver_name` AS `driver_name`, `bus`.`conductor_name` AS `conductor_name`, `s`.`departure_time` AS `departure_time`, `s`.`arrival_time` AS `arrival_time`, `s`.`trip_number` AS `trip_number`, `r`.`fare` AS `route_fare`, `r`.`origin` AS `origin`, `r`.`destination` AS `destination`, `r`.`distance` AS `distance`, `r`.`estimated_duration` AS `estimated_duration`, CASE WHEN `b`.`discount_type` = 'student' THEN `r`.`fare`* 0.8 WHEN `b`.`discount_type` = 'senior' THEN `r`.`fare`* 0.8 WHEN `b`.`discount_type` = 'pwd' THEN `r`.`fare`* 0.8 ELSE `r`.`fare` END AS `calculated_fare` FROM ((((`bookings` `b` left join `users` `u` on(`b`.`user_id` = `u`.`id`)) left join `buses` `bus` on(`b`.`bus_id` = `bus`.`id`)) left join `schedules` `s` on(`b`.`bus_id` = `s`.`bus_id` and `b`.`trip_number` = `s`.`trip_number`)) left join `routes` `r` on(`bus`.`route_name` like concat(`r`.`origin`,' → ',`r`.`destination`)));
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `booking_details_view`  AS SELECT `b`.`id` AS `id`, `b`.`booking_reference` AS `booking_reference`, `b`.`passenger_name` AS `passenger_name`, `b`.`seat_number` AS `seat_number`, `b`.`booking_date` AS `booking_date`, `b`.`booking_status` AS `booking_status`, `b`.`group_booking_id` AS `group_booking_id`, `b`.`discount_type` AS `discount_type`, `b`.`discount_verified` AS `discount_verified`, `b`.`base_fare` AS `base_fare`, `b`.`discount_amount` AS `discount_amount`, `b`.`final_fare` AS `final_fare`, `b`.`payment_method` AS `payment_method`, `b`.`payment_status` AS `payment_status`, `b`.`boarding_status` AS `boarding_status`, `b`.`created_at` AS `created_at`, `u`.`first_name` AS `booker_first_name`, `u`.`last_name` AS `booker_last_name`, `u`.`email` AS `booker_email`, `u`.`contact_number` AS `booker_phone`, `bus`.`bus_type` AS `bus_type`, `bus`.`plate_number` AS `plate_number`, `bus`.`route_name` AS `route_name`, `bus`.`driver_name` AS `driver_name`, `bus`.`conductor_name` AS `conductor_name`, `s`.`departure_time` AS `departure_time`, `s`.`arrival_time` AS `arrival_time`, `s`.`trip_number` AS `trip_number`, `r`.`fare` AS `route_fare`, `r`.`origin` AS `origin`, `r`.`destination` AS `destination`, `r`.`distance` AS `distance`, `r`.`estimated_duration` AS `estimated_duration`, CASE WHEN `b`.`discount_type` = 'student' THEN `r`.`fare`* 0.8 WHEN `b`.`discount_type` = 'senior' THEN `r`.`fare`* 0.8 WHEN `b`.`discount_type` = 'pwd' THEN `r`.`fare`* 0.8 ELSE `r`.`fare` END AS `calculated_fare` FROM ((((`bookings` `b` left join `users` `u` on(`b`.`user_id` = `u`.`id`)) left join `buses` `bus` on(`b`.`bus_id` = `bus`.`id`)) left join `schedules` `s` on(`b`.`bus_id` = `s`.`bus_id` and `b`.`trip_number` = `s`.`trip_number`)) left join `routes` `r` on(`bus`.`route_name` like concat(`r`.`origin`,' → ',`r`.`destination`))) ;
 
 -- --------------------------------------------------------
 
 --
 -- Structure for view `bus_utilization_view`
 --
+DROP TABLE IF EXISTS `bus_utilization_view`;
 
-CREATE VIEW `bus_utilization_view` AS SELECT `b`.`id` AS `bus_id`, `b`.`plate_number` AS `plate_number`, `b`.`bus_type` AS `bus_type`, `b`.`seat_capacity` AS `seat_capacity`, `b`.`route_name` AS `route_name`, `b`.`status` AS `status`, cast(`bk`.`booking_date` as date) AS `travel_date`, count(`bk`.`id`) AS `total_bookings`, count(case when `bk`.`booking_status` = 'confirmed' then 1 end) AS `confirmed_bookings`, count(case when `bk`.`booking_status` = 'cancelled' then 1 end) AS `cancelled_bookings`, round(count(case when `bk`.`booking_status` = 'confirmed' then 1 end) / `b`.`seat_capacity` * 100,2) AS `occupancy_rate`, sum(case when `bk`.`booking_status` = 'confirmed' then `bk`.`final_fare` else 0 end) AS `total_revenue` FROM (`buses` `b` left join `bookings` `bk` on(`b`.`id` = `bk`.`bus_id`)) GROUP BY `b`.`id`, cast(`bk`.`booking_date` as date) ORDER BY cast(`bk`.`booking_date` as date) DESC, round(count(case when `bk`.`booking_status` = 'confirmed' then 1 end) / `b`.`seat_capacity` * 100,2) DESC;
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `bus_utilization_view`  AS SELECT `b`.`id` AS `bus_id`, `b`.`plate_number` AS `plate_number`, `b`.`bus_type` AS `bus_type`, `b`.`seat_capacity` AS `seat_capacity`, `b`.`route_name` AS `route_name`, `b`.`status` AS `status`, cast(`bk`.`booking_date` as date) AS `travel_date`, count(`bk`.`id`) AS `total_bookings`, count(case when `bk`.`booking_status` = 'confirmed' then 1 end) AS `confirmed_bookings`, count(case when `bk`.`booking_status` = 'cancelled' then 1 end) AS `cancelled_bookings`, round(count(case when `bk`.`booking_status` = 'confirmed' then 1 end) / `b`.`seat_capacity` * 100,2) AS `occupancy_rate`, sum(case when `bk`.`booking_status` = 'confirmed' then `bk`.`final_fare` else 0 end) AS `total_revenue` FROM (`buses` `b` left join `bookings` `bk` on(`b`.`id` = `bk`.`bus_id`)) GROUP BY `b`.`id`, cast(`bk`.`booking_date` as date) ORDER BY cast(`bk`.`booking_date` as date) DESC, round(count(case when `bk`.`booking_status` = 'confirmed' then 1 end) / `b`.`seat_capacity` * 100,2) DESC ;
 
 -- --------------------------------------------------------
 
 --
 -- Structure for view `group_booking_analytics`
 --
+DROP TABLE IF EXISTS `group_booking_analytics`;
 
-CREATE VIEW `group_booking_analytics` AS SELECT cast(`group_booking_summary`.`booking_date` as date) AS `travel_date`, count(distinct `group_booking_summary`.`group_booking_id`) AS `total_group_bookings`, count(0) AS `total_group_passengers`, avg(`group_booking_summary`.`total_passengers`) AS `avg_group_size`, max(`group_booking_summary`.`total_passengers`) AS `largest_group_size`, sum(`group_booking_summary`.`total_amount`) AS `total_group_revenue`, sum(`group_booking_summary`.`total_discount`) AS `total_group_discounts`, `group_booking_summary`.`payment_method` AS `payment_method`, `group_booking_summary`.`payment_status` AS `payment_status`, `group_booking_summary`.`discount_type` AS `discount_type` FROM `group_booking_summary` GROUP BY cast(`group_booking_summary`.`booking_date` as date), `group_booking_summary`.`payment_method`, `group_booking_summary`.`payment_status`, `group_booking_summary`.`discount_type`;
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `group_booking_analytics`  AS SELECT cast(`gbs`.`booking_date` as date) AS `travel_date`, count(distinct `gbs`.`group_booking_id`) AS `total_group_bookings`, sum(`gbs`.`total_passengers`) AS `total_group_passengers`, avg(`gbs`.`total_passengers`) AS `avg_group_size`, max(`gbs`.`total_passengers`) AS `largest_group_size`, sum(`gbs`.`total_amount`) AS `total_group_revenue`, sum(`gbs`.`total_discount`) AS `total_group_discounts`, `gbs`.`payment_method` AS `payment_method`, `gbs`.`payment_status` AS `payment_status`, substring_index(`gbs`.`discount_types`,',',1) AS `primary_discount_type` FROM `group_booking_summary` AS `gbs` GROUP BY cast(`gbs`.`booking_date` as date), `gbs`.`payment_method`, `gbs`.`payment_status`, substring_index(`gbs`.`discount_types`,',',1) ORDER BY cast(`gbs`.`booking_date` as date) DESC ;
 
 -- --------------------------------------------------------
 
 --
 -- Structure for view `group_booking_summary`
 --
+DROP TABLE IF EXISTS `group_booking_summary`;
 
-CREATE VIEW `group_booking_summary` AS SELECT `b`.`group_booking_id` AS `group_booking_id`, count(`b`.`id`) AS `total_passengers`, sum(`b`.`base_fare`) AS `total_base_fare`, sum(`b`.`discount_amount`) AS `total_discount`, sum(`b`.`final_fare`) AS `total_amount`, group_concat(concat(`b`.`passenger_name`,' (Seat ',`b`.`seat_number`,')') separator ', ') AS `passengers_list`, group_concat(distinct `b`.`discount_type` separator ',') AS `discount_types`, `b`.`booking_date` AS `booking_date`, `b`.`payment_method` AS `payment_method`, `b`.`payment_status` AS `payment_status`, `b`.`created_at` AS `created_at`, `u`.`first_name` AS `booker_first_name`, `u`.`last_name` AS `booker_last_name`, `u`.`email` AS `booker_email`, `bus`.`plate_number` AS `plate_number`, `bus`.`route_name` AS `route_name`, `s`.`departure_time` AS `departure_time`, `s`.`arrival_time` AS `arrival_time`, `s`.`trip_number` AS `trip_number` FROM (((`bookings` `b` left join `users` `u` on(`b`.`user_id` = `u`.`id`)) left join `buses` `bus` on(`b`.`bus_id` = `bus`.`id`)) left join `schedules` `s` on(`b`.`bus_id` = `s`.`bus_id` and `b`.`trip_number` = `s`.`trip_number`)) WHERE `b`.`group_booking_id` is not null GROUP BY `b`.`group_booking_id` ORDER BY `b`.`created_at` DESC;
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `group_booking_summary`  AS SELECT `b`.`group_booking_id` AS `group_booking_id`, count(`b`.`id`) AS `total_passengers`, sum(`b`.`base_fare`) AS `total_base_fare`, sum(`b`.`discount_amount`) AS `total_discount`, sum(`b`.`final_fare`) AS `total_amount`, group_concat(concat(`b`.`passenger_name`,' (Seat ',`b`.`seat_number`,')') separator ', ') AS `passengers_list`, group_concat(distinct `b`.`discount_type` separator ',') AS `discount_types`, `b`.`booking_date` AS `booking_date`, `b`.`payment_method` AS `payment_method`, `b`.`payment_status` AS `payment_status`, `b`.`created_at` AS `created_at`, `u`.`first_name` AS `booker_first_name`, `u`.`last_name` AS `booker_last_name`, `u`.`email` AS `booker_email`, `bus`.`plate_number` AS `plate_number`, `bus`.`route_name` AS `route_name`, `s`.`departure_time` AS `departure_time`, `s`.`arrival_time` AS `arrival_time`, `s`.`trip_number` AS `trip_number` FROM (((`bookings` `b` left join `users` `u` on(`b`.`user_id` = `u`.`id`)) left join `buses` `bus` on(`b`.`bus_id` = `bus`.`id`)) left join `schedules` `s` on(`b`.`bus_id` = `s`.`bus_id` and `b`.`trip_number` = `s`.`trip_number`)) WHERE `b`.`group_booking_id` is not null GROUP BY `b`.`group_booking_id` ORDER BY `b`.`created_at` DESC ;
 
 -- --------------------------------------------------------
 
 --
 -- Structure for view `revenue_summary_view`
 --
+DROP TABLE IF EXISTS `revenue_summary_view`;
 
-CREATE VIEW `revenue_summary_view` AS SELECT cast(`b`.`booking_date` as date) AS `revenue_date`, count(`b`.`id`) AS `total_bookings`, count(case when `b`.`booking_status` = 'confirmed' then 1 end) AS `confirmed_bookings`, sum(case when `b`.`booking_status` = 'confirmed' then `b`.`final_fare` else 0 end) AS `total_revenue`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`discount_type` <> 'regular' then `b`.`discount_amount` else 0 end) AS `total_discounts`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`payment_method` = 'counter' then `b`.`final_fare` else 0 end) AS `counter_revenue`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`payment_method` = 'gcash' then `b`.`final_fare` else 0 end) AS `gcash_revenue`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`payment_method` = 'paymaya' then `b`.`final_fare` else 0 end) AS `paymaya_revenue`, avg(case when `b`.`booking_status` = 'confirmed' then `b`.`final_fare` end) AS `average_fare` FROM `bookings` AS `b` WHERE `b`.`booking_date` >= curdate() - interval 30 day GROUP BY cast(`b`.`booking_date` as date) ORDER BY cast(`b`.`booking_date` as date) DESC;
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `revenue_summary_view`  AS SELECT cast(`b`.`booking_date` as date) AS `revenue_date`, count(`b`.`id`) AS `total_bookings`, count(case when `b`.`booking_status` = 'confirmed' then 1 end) AS `confirmed_bookings`, sum(case when `b`.`booking_status` = 'confirmed' then `b`.`final_fare` else 0 end) AS `total_revenue`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`discount_type` <> 'regular' then `b`.`discount_amount` else 0 end) AS `total_discounts`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`payment_method` = 'counter' then `b`.`final_fare` else 0 end) AS `counter_revenue`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`payment_method` = 'gcash' then `b`.`final_fare` else 0 end) AS `gcash_revenue`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`payment_method` = 'paymaya' then `b`.`final_fare` else 0 end) AS `paymaya_revenue`, avg(case when `b`.`booking_status` = 'confirmed' then `b`.`final_fare` end) AS `average_fare` FROM `bookings` AS `b` WHERE `b`.`booking_date` >= curdate() - interval 30 day GROUP BY cast(`b`.`booking_date` as date) ORDER BY cast(`b`.`booking_date` as date) DESC ;
 
 --
 -- Indexes for dumped tables
@@ -726,203 +861,6 @@ ALTER TABLE `discount_verifications`
   ADD KEY `idx_verification_status` (`verification_status`),
   ADD KEY `idx_discount_type` (`discount_type`),
   ADD KEY `fk_discount_verified_by` (`verified_by`);
-
---
--- Indexes for table `payment_verifications`
---
-ALTER TABLE `payment_verifications`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_payment_booking` (`booking_id`),
-  ADD KEY `idx_payment_verification_status` (`verification_status`),
-  ADD KEY `idx_payment_method` (`payment_method`),
-  ADD KEY `idx_group_booking_payment` (`group_booking_id`),
-  ADD KEY `fk_payment_verified_by` (`verified_by`);
-
---
--- Indexes for table `routes`
---
-ALTER TABLE `routes`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `unique_route` (`origin`,`destination`),
-  ADD KEY `idx_route_search` (`origin`,`destination`),
-  ADD KEY `idx_status` (`status`),
-  ADD KEY `idx_route_active` (`status`,`origin`,`destination`);
-
---
--- Indexes for table `schedules`
---
-ALTER TABLE `schedules`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `unique_bus_trip` (`bus_id`,`trip_number`),
-  ADD KEY `origin_destination` (`origin`,`destination`),
-  ADD KEY `idx_trip_number` (`trip_number`),
-  ADD KEY `idx_schedule_status` (`status`),
-  ADD KEY `idx_departure_time` (`departure_time`),
-  ADD KEY `idx_schedule_date` (`date`),
-  ADD KEY `idx_schedule_time` (`departure_time`,`arrival_time`);
-
---
--- Indexes for table `system_settings`
---
-ALTER TABLE `system_settings`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `setting_key` (`setting_key`);
-
---
--- Indexes for table `users`
---
-ALTER TABLE `users`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `email` (`email`),
-  ADD KEY `idx_user_type` (`user_type`),
-  ADD KEY `idx_status` (`status`),
-  ADD KEY `idx_email_status` (`email`,`status`),
-  ADD KEY `idx_users_id` (`id`);
-
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `audit_logs`
---
-ALTER TABLE `audit_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `bookings`
---
-ALTER TABLE `bookings`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `booking_groups`
---
-ALTER TABLE `booking_groups`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `buses`
---
-ALTER TABLE `buses`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `contact_messages`
---
-ALTER TABLE `contact_messages`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `contact_replies`
---
-ALTER TABLE `contact_replies`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `discount_verifications`
---
-ALTER TABLE `discount_verifications`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `payment_verifications`
---
-ALTER TABLE `payment_verifications`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `routes`
---
-ALTER TABLE `routes`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `schedules`
---
-ALTER TABLE `schedules`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
-
---
--- AUTO_INCREMENT for table `system_settings`
---
-ALTER TABLE `system_settings`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
-
---
--- AUTO_INCREMENT for table `users`
---
-ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1001;
-
---
--- Constraints for dumped tables
---
-
---
--- Constraints for table `audit_logs`
---
-ALTER TABLE `audit_logs`
-  ADD CONSTRAINT `fk_audit_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `bookings`
---
-ALTER TABLE `bookings`
-  ADD CONSTRAINT `fk_booking_bus` FOREIGN KEY (`bus_id`) REFERENCES `buses` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_booking_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_cancelled_by` FOREIGN KEY (`cancelled_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_discount_verifier` FOREIGN KEY (`discount_verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_refund_processor` FOREIGN KEY (`refund_processed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `booking_groups`
---
-ALTER TABLE `booking_groups`
-  ADD CONSTRAINT `fk_group_bus` FOREIGN KEY (`bus_id`) REFERENCES `buses` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_group_payment_verifier` FOREIGN KEY (`payment_verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_group_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `buses`
---
-ALTER TABLE `buses`
-  ADD CONSTRAINT `fk_bus_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `contact_messages`
---
-ALTER TABLE `contact_messages`
-  ADD CONSTRAINT `fk_contact_assigned` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_contact_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `contact_replies`
---
-ALTER TABLE `contact_replies`
-  ADD CONSTRAINT `fk_reply_message` FOREIGN KEY (`message_id`) REFERENCES `contact_messages` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_reply_user` FOREIGN KEY (`replied_by`) REFERENCES `users` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `discount_verifications`
---
-ALTER TABLE `discount_verifications`
-  ADD CONSTRAINT `fk_discount_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_discount_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `payment_verifications`
---
-ALTER TABLE `payment_verifications`
-  ADD CONSTRAINT `fk_payment_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_payment_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `schedules`
---
-ALTER TABLE `schedules`
-  ADD CONSTRAINT `fk_schedule_bus` FOREIGN KEY (`bus_id`) REFERENCES `buses` (`id`) ON DELETE CASCADE;
-
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
