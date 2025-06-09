@@ -1,31 +1,39 @@
--- phpMyAdmin SQL Dump
--- version 5.2.1
--- https://www.phpmyadmin.net/
---
--- Host: 127.0.0.1
--- Generation Time: Jun 09, 2025 at 04:22 PM
--- Server version: 10.4.32-MariaDB
--- PHP Version: 8.2.12
+-- phpMyAdmin SQL Dump - CORRECTED VERSION
+-- Fixed AUTO_INCREMENT issues and optimized schema
+-- Database: `bus_booking`
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
 SET time_zone = "+00:00";
-
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
 /*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
 /*!40101 SET NAMES utf8mb4 */;
 
---
--- Database: `bus_booking`
---
+-- Create database if not exists
+CREATE DATABASE IF NOT EXISTS `bus_booking` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+USE `bus_booking`;
 
 DELIMITER $$
---
--- Procedures
---
-CREATE DEFINER=`root`@`localhost` PROCEDURE `CreateGroupBooking` (IN `p_user_id` INT, IN `p_bus_id` INT, IN `p_booking_date` DATE, IN `p_payment_method` VARCHAR(50), IN `p_discount_type` VARCHAR(20), IN `p_seat_numbers` TEXT, IN `p_passenger_names` TEXT, IN `p_passenger_contacts` TEXT, OUT `p_group_booking_id` VARCHAR(100), OUT `p_total_amount` DECIMAL(10,2))   BEGIN
+
+-- ============================================================================
+-- STORED PROCEDURES
+-- ============================================================================
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `CreateGroupBooking` (
+    IN `p_user_id` INT, 
+    IN `p_bus_id` INT, 
+    IN `p_booking_date` DATE, 
+    IN `p_payment_method` VARCHAR(50), 
+    IN `p_discount_type` VARCHAR(20), 
+    IN `p_seat_numbers` TEXT, 
+    IN `p_passenger_names` TEXT, 
+    IN `p_passenger_contacts` TEXT, 
+    OUT `p_group_booking_id` VARCHAR(100), 
+    OUT `p_total_amount` DECIMAL(10,2)
+) 
+BEGIN
     DECLARE v_fare DECIMAL(10,2);
     DECLARE v_discount_rate DECIMAL(3,2) DEFAULT 0;
     DECLARE v_base_fare DECIMAL(10,2);
@@ -106,7 +114,11 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `CreateGroupBooking` (IN `p_user_id`
     COMMIT;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `GetBusAvailability` (IN `p_bus_id` INT, IN `p_booking_date` DATE)   BEGIN
+CREATE DEFINER=`root`@`localhost` PROCEDURE `GetBusAvailability` (
+    IN `p_bus_id` INT, 
+    IN `p_booking_date` DATE
+)   
+BEGIN
     SELECT 
         b.id,
         b.seat_capacity,
@@ -121,7 +133,15 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `GetBusAvailability` (IN `p_bus_id` 
     GROUP BY b.id;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `ProcessGroupBooking` (IN `p_group_id` VARCHAR(50), IN `p_user_id` INT, IN `p_bus_id` INT, IN `p_booking_date` DATE, IN `p_payment_method` VARCHAR(50), IN `p_tickets` JSON)   BEGIN
+CREATE DEFINER=`root`@`localhost` PROCEDURE `ProcessGroupBooking` (
+    IN `p_group_id` VARCHAR(50), 
+    IN `p_user_id` INT, 
+    IN `p_bus_id` INT, 
+    IN `p_booking_date` DATE, 
+    IN `p_payment_method` VARCHAR(50), 
+    IN `p_tickets` JSON
+)   
+BEGIN
     DECLARE v_ticket_count INT;
     DECLARE v_total_amount DECIMAL(10,2) DEFAULT 0;
     DECLARE v_base_fare DECIMAL(10,2);
@@ -204,10 +224,18 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `ProcessGroupBooking` (IN `p_group_i
     END IF;
 END$$
 
---
--- Functions
---
-CREATE DEFINER=`root`@`localhost` FUNCTION `CalculateFareWithDiscount` (`base_fare` DECIMAL(10,2), `discount_type` VARCHAR(20)) RETURNS DECIMAL(10,2) DETERMINISTIC READS SQL DATA BEGIN
+-- ============================================================================
+-- FUNCTIONS
+-- ============================================================================
+
+CREATE DEFINER=`root`@`localhost` FUNCTION `CalculateFareWithDiscount` (
+    `base_fare` DECIMAL(10,2), 
+    `discount_type` VARCHAR(20)
+) 
+RETURNS DECIMAL(10,2) 
+DETERMINISTIC 
+READS SQL DATA 
+BEGIN
     DECLARE final_fare DECIMAL(10,2);
     
     CASE discount_type
@@ -220,7 +248,15 @@ CREATE DEFINER=`root`@`localhost` FUNCTION `CalculateFareWithDiscount` (`base_fa
     RETURN final_fare;
 END$$
 
-CREATE DEFINER=`root`@`localhost` FUNCTION `CheckSeatsAvailability` (`p_bus_id` INT, `p_date` DATE, `p_seat_numbers` TEXT) RETURNS TINYINT(1) DETERMINISTIC READS SQL DATA BEGIN
+CREATE DEFINER=`root`@`localhost` FUNCTION `CheckSeatsAvailability` (
+    `p_bus_id` INT, 
+    `p_date` DATE, 
+    `p_seat_numbers` TEXT
+) 
+RETURNS TINYINT(1) 
+DETERMINISTIC 
+READS SQL DATA 
+BEGIN
     DECLARE v_booked_count INT DEFAULT 0;
     
     -- Count how many of the requested seats are already booked
@@ -235,7 +271,12 @@ CREATE DEFINER=`root`@`localhost` FUNCTION `CheckSeatsAvailability` (`p_bus_id` 
     RETURN v_booked_count = 0;
 END$$
 
-CREATE DEFINER=`root`@`localhost` FUNCTION `GetNextBookingReference` () RETURNS VARCHAR(20) CHARSET utf8mb4 COLLATE utf8mb4_general_ci DETERMINISTIC READS SQL DATA BEGIN
+CREATE DEFINER=`root`@`localhost` FUNCTION `GetNextBookingReference` () 
+RETURNS VARCHAR(20) 
+CHARSET utf8mb4 COLLATE utf8mb4_general_ci 
+DETERMINISTIC 
+READS SQL DATA 
+BEGIN
     DECLARE next_ref VARCHAR(20);
     DECLARE next_id INT;
     
@@ -245,7 +286,15 @@ CREATE DEFINER=`root`@`localhost` FUNCTION `GetNextBookingReference` () RETURNS 
     RETURN next_ref;
 END$$
 
-CREATE DEFINER=`root`@`localhost` FUNCTION `IsSeatAvailable` (`p_bus_id` INT, `p_seat_number` INT, `p_booking_date` DATE) RETURNS TINYINT(1) DETERMINISTIC READS SQL DATA BEGIN
+CREATE DEFINER=`root`@`localhost` FUNCTION `IsSeatAvailable` (
+    `p_bus_id` INT, 
+    `p_seat_number` INT, 
+    `p_booking_date` DATE
+) 
+RETURNS TINYINT(1) 
+DETERMINISTIC 
+READS SQL DATA 
+BEGIN
     DECLARE seat_count INT DEFAULT 0;
     
     SELECT COUNT(*) INTO seat_count
@@ -260,33 +309,125 @@ END$$
 
 DELIMITER ;
 
--- --------------------------------------------------------
+-- ============================================================================
+-- TABLES
+-- ============================================================================
 
---
--- Table structure for table `audit_logs`
---
+-- Table structure for table `users`
+CREATE TABLE `users` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `first_name` varchar(50) NOT NULL,
+  `last_name` varchar(50) NOT NULL,
+  `gender` enum('male','female','other') NOT NULL,
+  `birthdate` date NOT NULL,
+  `contact_number` varchar(20) NOT NULL,
+  `email` varchar(100) NOT NULL,
+  `password` varchar(255) NOT NULL,
+  `is_verified` tinyint(1) DEFAULT 0,
+  `user_type` enum('customer','admin','staff') DEFAULT 'customer',
+  `profile_image` varchar(255) DEFAULT NULL,
+  `address` text DEFAULT NULL,
+  `emergency_contact` varchar(100) DEFAULT NULL,
+  `emergency_phone` varchar(20) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `last_login` datetime DEFAULT NULL,
+  `status` enum('active','inactive','suspended') DEFAULT 'active',
+  `full_name` varchar(101) GENERATED ALWAYS AS (concat(`first_name`,' ',`last_name`)) STORED,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `email` (`email`),
+  KEY `idx_user_type` (`user_type`),
+  KEY `idx_status` (`status`),
+  KEY `idx_email_status` (`email`,`status`),
+  KEY `idx_users_id` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=1000 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `audit_logs` (
-  `id` int(11) NOT NULL,
-  `user_id` int(11) DEFAULT NULL,
-  `action` varchar(100) NOT NULL,
-  `table_name` varchar(50) DEFAULT NULL,
-  `record_id` int(11) DEFAULT NULL,
-  `old_values` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`old_values`)),
-  `new_values` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`new_values`)),
-  `ip_address` varchar(45) DEFAULT NULL,
-  `user_agent` text DEFAULT NULL,
-  `created_at` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+-- Table structure for table `routes`
+CREATE TABLE `routes` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `origin` varchar(255) NOT NULL,
+  `destination` varchar(255) NOT NULL,
+  `distance` decimal(10,2) NOT NULL,
+  `estimated_duration` varchar(50) NOT NULL,
+  `fare` decimal(10,2) NOT NULL,
+  `description` text DEFAULT NULL,
+  `status` enum('active','inactive') DEFAULT 'active',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_route` (`origin`,`destination`),
+  KEY `idx_route_search` (`origin`,`destination`),
+  KEY `idx_status` (`status`),
+  KEY `idx_route_active` (`status`,`origin`,`destination`)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- --------------------------------------------------------
+-- Table structure for table `buses`
+CREATE TABLE `buses` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `bus_type` varchar(50) NOT NULL,
+  `seat_capacity` int(11) NOT NULL,
+  `plate_number` varchar(20) NOT NULL,
+  `driver_name` varchar(100) NOT NULL,
+  `conductor_name` varchar(100) NOT NULL,
+  `status` enum('Active','Inactive','Under Maintenance') DEFAULT 'Active',
+  `route_id` int(11) DEFAULT NULL,
+  `route_name` varchar(255) NOT NULL,
+  `origin` varchar(100) DEFAULT NULL,
+  `destination` varchar(100) DEFAULT NULL,
+  `bus_model` varchar(100) DEFAULT NULL,
+  `year_manufactured` year(4) DEFAULT NULL,
+  `last_maintenance` date DEFAULT NULL,
+  `next_maintenance` date DEFAULT NULL,
+  `fuel_type` enum('diesel','gasoline','electric','hybrid') DEFAULT 'diesel',
+  `wifi_available` tinyint(1) DEFAULT 0,
+  `charging_ports` tinyint(1) DEFAULT 0,
+  `wheelchair_accessible` tinyint(1) DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `plate_number` (`plate_number`),
+  KEY `status` (`status`),
+  KEY `fk_bus_route` (`route_id`),
+  KEY `idx_bus_type` (`bus_type`),
+  KEY `idx_route_name` (`route_name`),
+  KEY `idx_bus_status_type` (`status`,`bus_type`),
+  KEY `idx_buses_id` (`id`),
+  CONSTRAINT `fk_bus_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=100 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
+-- Table structure for table `schedules`
+CREATE TABLE `schedules` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `bus_id` int(11) NOT NULL,
+  `origin` varchar(255) NOT NULL,
+  `destination` varchar(255) NOT NULL,
+  `departure_time` time NOT NULL,
+  `arrival_time` time NOT NULL,
+  `fare_amount` decimal(10,2) NOT NULL,
+  `recurring` tinyint(1) NOT NULL DEFAULT 0,
+  `trip_number` varchar(20) DEFAULT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'active',
+  `days_of_week` set('monday','tuesday','wednesday','thursday','friday','saturday','sunday') DEFAULT 'monday,tuesday,wednesday,thursday,friday,saturday,sunday',
+  `effective_date` date DEFAULT NULL,
+  `expiry_date` date DEFAULT NULL,
+  `date` date DEFAULT NULL,
+  `special_notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_bus_trip` (`bus_id`,`trip_number`),
+  KEY `origin_destination` (`origin`,`destination`),
+  KEY `idx_trip_number` (`trip_number`),
+  KEY `idx_schedule_status` (`status`),
+  KEY `idx_departure_time` (`departure_time`),
+  KEY `idx_schedule_date` (`date`),
+  KEY `idx_schedule_time` (`departure_time`,`arrival_time`),
+  CONSTRAINT `fk_schedule_bus` FOREIGN KEY (`bus_id`) REFERENCES `buses` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 -- Table structure for table `bookings`
---
-
 CREATE TABLE `bookings` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL AUTO_INCREMENT,
   `bus_id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
   `seat_number` int(11) NOT NULL,
@@ -323,80 +464,37 @@ CREATE TABLE `bookings` (
   `qr_code` varchar(255) DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `passenger_contact` varchar(20) DEFAULT NULL
-) ;
+  `passenger_contact` varchar(20) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `bus_id` (`bus_id`),
+  KEY `user_id` (`user_id`),
+  KEY `idx_booking_reference` (`booking_reference`),
+  KEY `idx_group_booking` (`group_booking_id`),
+  KEY `idx_discount_type` (`discount_type`),
+  KEY `idx_payment_status` (`payment_status`),
+  KEY `idx_booking_date_status` (`booking_date`,`booking_status`),
+  KEY `idx_passenger_name` (`passenger_name`),
+  KEY `idx_discount_verification` (`discount_type`,`discount_verified`),
+  KEY `idx_payment_verification` (`payment_method`,`payment_status`),
+  KEY `fk_discount_verifier` (`discount_verified_by`),
+  KEY `fk_cancelled_by` (`cancelled_by`),
+  KEY `fk_refund_processor` (`refund_processed_by`),
+  KEY `idx_bookings_bus_id` (`bus_id`),
+  KEY `idx_bookings_user_id` (`user_id`),
+  KEY `idx_group_booking_id` (`group_booking_id`),
+  KEY `idx_bus_date` (`bus_id`,`booking_date`),
+  KEY `idx_booking_status` (`booking_status`),
+  KEY `idx_booking_date` (`booking_date`),
+  CONSTRAINT `fk_booking_bus` FOREIGN KEY (`bus_id`) REFERENCES `buses` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_booking_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_cancelled_by` FOREIGN KEY (`cancelled_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_discount_verifier` FOREIGN KEY (`discount_verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_refund_processor` FOREIGN KEY (`refund_processed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Triggers `bookings`
---
-DELIMITER $$
-CREATE TRIGGER `calculate_final_fare_insert` BEFORE INSERT ON `bookings` FOR EACH ROW BEGIN
-    IF NEW.base_fare IS NOT NULL THEN
-        SET NEW.final_fare = NEW.base_fare - COALESCE(NEW.discount_amount, 0);
-    END IF;
-END
-$$
-DELIMITER ;
-DELIMITER $$
-CREATE TRIGGER `update_final_fare` BEFORE UPDATE ON `bookings` FOR EACH ROW BEGIN
-    IF NEW.base_fare IS NOT NULL THEN
-        SET NEW.final_fare = NEW.base_fare - COALESCE(NEW.discount_amount, 0);
-    END IF;
-END
-$$
-DELIMITER ;
-
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `booking_details_view`
--- (See below for the actual view)
---
-CREATE TABLE `booking_details_view` (
-`id` int(11)
-,`booking_reference` varchar(20)
-,`passenger_name` varchar(100)
-,`seat_number` int(11)
-,`booking_date` date
-,`booking_status` enum('pending','confirmed','cancelled','completed','no_show')
-,`group_booking_id` varchar(50)
-,`discount_type` varchar(20)
-,`discount_verified` tinyint(1)
-,`base_fare` decimal(10,2)
-,`discount_amount` decimal(10,2)
-,`final_fare` decimal(10,2)
-,`payment_method` varchar(50)
-,`payment_status` varchar(20)
-,`boarding_status` enum('not_boarded','boarded','completed')
-,`created_at` datetime
-,`booker_first_name` varchar(50)
-,`booker_last_name` varchar(50)
-,`booker_email` varchar(100)
-,`booker_phone` varchar(20)
-,`bus_type` varchar(50)
-,`plate_number` varchar(20)
-,`route_name` varchar(255)
-,`driver_name` varchar(100)
-,`conductor_name` varchar(100)
-,`departure_time` time
-,`arrival_time` time
-,`trip_number` varchar(20)
-,`route_fare` decimal(10,2)
-,`origin` varchar(255)
-,`destination` varchar(255)
-,`distance` decimal(10,2)
-,`estimated_duration` varchar(50)
-,`calculated_fare` decimal(12,3)
-);
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `booking_groups`
---
-
 CREATE TABLE `booking_groups` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL AUTO_INCREMENT,
   `group_id` varchar(50) NOT NULL,
   `user_id` int(11) NOT NULL,
   `bus_id` int(11) NOT NULL,
@@ -420,75 +518,44 @@ CREATE TABLE `booking_groups` (
   `refund_processed_by` int(11) DEFAULT NULL,
   `refund_processed_at` datetime DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
-  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ;
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `group_id` (`group_id`),
+  KEY `idx_group_user` (`user_id`,`booking_date`),
+  KEY `idx_group_bus` (`bus_id`,`booking_date`),
+  KEY `idx_group_status` (`group_status`),
+  KEY `idx_payment_status` (`payment_status`),
+  KEY `fk_group_payment_verifier` (`payment_verified_by`),
+  KEY `idx_group_booking_user` (`user_id`,`booking_date`),
+  KEY `idx_group_booking_bus` (`bus_id`,`booking_date`),
+  CONSTRAINT `fk_group_bus` FOREIGN KEY (`bus_id`) REFERENCES `buses` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_group_payment_verifier` FOREIGN KEY (`payment_verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_group_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- --------------------------------------------------------
+-- Table structure for table `audit_logs`
+CREATE TABLE `audit_logs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) DEFAULT NULL,
+  `action` varchar(100) NOT NULL,
+  `table_name` varchar(50) DEFAULT NULL,
+  `record_id` int(11) DEFAULT NULL,
+  `old_values` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`old_values`)),
+  `new_values` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`new_values`)),
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` text DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `fk_audit_user` (`user_id`),
+  KEY `idx_audit_action` (`action`),
+  KEY `idx_audit_table` (`table_name`),
+  KEY `idx_audit_created` (`created_at`),
+  CONSTRAINT `fk_audit_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Table structure for table `buses`
---
-
-CREATE TABLE `buses` (
-  `id` int(11) NOT NULL,
-  `bus_type` varchar(50) NOT NULL,
-  `seat_capacity` int(11) NOT NULL,
-  `plate_number` varchar(20) NOT NULL,
-  `driver_name` varchar(100) NOT NULL,
-  `conductor_name` varchar(100) NOT NULL,
-  `status` enum('Active','Inactive','Under Maintenance') DEFAULT 'Active',
-  `route_id` int(11) DEFAULT NULL,
-  `route_name` varchar(255) NOT NULL,
-  `origin` varchar(100) DEFAULT NULL,
-  `destination` varchar(100) DEFAULT NULL,
-  `bus_model` varchar(100) DEFAULT NULL,
-  `year_manufactured` year(4) DEFAULT NULL,
-  `last_maintenance` date DEFAULT NULL,
-  `next_maintenance` date DEFAULT NULL,
-  `fuel_type` enum('diesel','gasoline','electric','hybrid') DEFAULT 'diesel',
-  `wifi_available` tinyint(1) DEFAULT 0,
-  `charging_ports` tinyint(1) DEFAULT 0,
-  `wheelchair_accessible` tinyint(1) DEFAULT 0,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ;
-
---
--- Dumping data for table `buses`
---
-
-INSERT INTO `buses` (`id`, `bus_type`, `seat_capacity`, `plate_number`, `driver_name`, `conductor_name`, `status`, `route_id`, `route_name`, `origin`, `destination`, `bus_model`, `year_manufactured`, `last_maintenance`, `next_maintenance`, `fuel_type`, `wifi_available`, `charging_ports`, `wheelchair_accessible`, `created_at`, `updated_at`) VALUES
-(101, 'Regular', 50, 'fa12121333', 'Jose', 'Maria', 'Active', 10, 'iloilo → roxas', 'iloilo', 'roxas', NULL, NULL, NULL, NULL, 'diesel', 0, 0, 0, '2025-06-09 13:16:45', '2025-06-09 13:16:45');
-
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `bus_utilization_view`
--- (See below for the actual view)
---
-CREATE TABLE `bus_utilization_view` (
-`bus_id` int(11)
-,`plate_number` varchar(20)
-,`bus_type` varchar(50)
-,`seat_capacity` int(11)
-,`route_name` varchar(255)
-,`status` enum('Active','Inactive','Under Maintenance')
-,`travel_date` date
-,`total_bookings` bigint(21)
-,`confirmed_bookings` bigint(21)
-,`cancelled_bookings` bigint(21)
-,`occupancy_rate` decimal(26,2)
-,`total_revenue` decimal(32,2)
-);
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `contact_messages`
---
-
 CREATE TABLE `contact_messages` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL AUTO_INCREMENT,
   `user_id` int(11) NOT NULL,
   `name` varchar(100) NOT NULL,
   `email` varchar(100) NOT NULL,
@@ -500,33 +567,35 @@ CREATE TABLE `contact_messages` (
   `assigned_to` int(11) DEFAULT NULL,
   `created_at` datetime NOT NULL,
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `is_read` tinyint(1) DEFAULT 0
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  `is_read` tinyint(1) DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `fk_contact_user` (`user_id`),
+  KEY `fk_contact_assigned` (`assigned_to`),
+  KEY `idx_contact_status` (`status`),
+  KEY `idx_contact_priority` (`priority`),
+  CONSTRAINT `fk_contact_assigned` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_contact_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- --------------------------------------------------------
-
---
 -- Table structure for table `contact_replies`
---
-
 CREATE TABLE `contact_replies` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL AUTO_INCREMENT,
   `message_id` int(11) NOT NULL,
   `reply_message` text NOT NULL,
   `replied_by` int(11) NOT NULL,
   `replied_by_name` varchar(100) NOT NULL,
   `is_internal` tinyint(1) DEFAULT 0,
-  `replied_at` datetime NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  `replied_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `fk_reply_message` (`message_id`),
+  KEY `fk_reply_user` (`replied_by`),
+  CONSTRAINT `fk_reply_message` FOREIGN KEY (`message_id`) REFERENCES `contact_messages` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_reply_user` FOREIGN KEY (`replied_by`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- --------------------------------------------------------
-
---
 -- Table structure for table `discount_verifications`
---
-
 CREATE TABLE `discount_verifications` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL AUTO_INCREMENT,
   `booking_id` int(11) NOT NULL,
   `discount_type` varchar(20) NOT NULL,
   `id_proof_path` varchar(255) NOT NULL,
@@ -540,54 +609,19 @@ CREATE TABLE `discount_verifications` (
   `verified_at` datetime DEFAULT NULL,
   `resubmission_count` int(11) DEFAULT 0,
   `created_at` datetime DEFAULT current_timestamp(),
-  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `fk_discount_booking` (`booking_id`),
+  KEY `idx_verification_status` (`verification_status`),
+  KEY `idx_discount_type` (`discount_type`),
+  KEY `fk_discount_verified_by` (`verified_by`),
+  CONSTRAINT `fk_discount_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_discount_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `group_booking_analytics`
--- (See below for the actual view)
---
-CREATE TABLE `group_booking_analytics` (
-);
-
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `group_booking_summary`
--- (See below for the actual view)
---
-CREATE TABLE `group_booking_summary` (
-`group_booking_id` varchar(50)
-,`total_passengers` bigint(21)
-,`total_base_fare` decimal(32,2)
-,`total_discount` decimal(32,2)
-,`total_amount` decimal(32,2)
-,`passengers_list` mediumtext
-,`discount_types` mediumtext
-,`booking_date` date
-,`payment_method` varchar(50)
-,`payment_status` varchar(20)
-,`created_at` datetime
-,`booker_first_name` varchar(50)
-,`booker_last_name` varchar(50)
-,`booker_email` varchar(100)
-,`plate_number` varchar(20)
-,`route_name` varchar(255)
-,`departure_time` time
-,`arrival_time` time
-,`trip_number` varchar(20)
-);
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `payment_verifications`
---
-
 CREATE TABLE `payment_verifications` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL AUTO_INCREMENT,
   `booking_id` int(11) DEFAULT NULL,
   `group_booking_id` varchar(50) DEFAULT NULL,
   `payment_method` varchar(50) NOT NULL,
@@ -602,472 +636,215 @@ CREATE TABLE `payment_verifications` (
   `verified_at` datetime DEFAULT NULL,
   `resubmission_count` int(11) DEFAULT 0,
   `created_at` datetime DEFAULT current_timestamp(),
-  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `fk_payment_booking` (`booking_id`),
+  KEY `idx_payment_verification_status` (`verification_status`),
+  KEY `idx_payment_method` (`payment_method`),
+  KEY `idx_group_booking_payment` (`group_booking_id`),
+  KEY `fk_payment_verified_by` (`verified_by`),
+  CONSTRAINT `fk_payment_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_payment_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `revenue_summary_view`
--- (See below for the actual view)
---
-CREATE TABLE `revenue_summary_view` (
-`revenue_date` date
-,`total_bookings` bigint(21)
-,`confirmed_bookings` bigint(21)
-,`total_revenue` decimal(32,2)
-,`total_discounts` decimal(32,2)
-,`counter_revenue` decimal(32,2)
-,`gcash_revenue` decimal(32,2)
-,`paymaya_revenue` decimal(32,2)
-,`average_fare` decimal(14,6)
-);
-
--- --------------------------------------------------------
-
---
--- Table structure for table `routes`
---
-
-CREATE TABLE `routes` (
-  `id` int(11) NOT NULL,
-  `origin` varchar(255) NOT NULL,
-  `destination` varchar(255) NOT NULL,
-  `distance` decimal(10,2) NOT NULL,
-  `estimated_duration` varchar(50) NOT NULL,
-  `fare` decimal(10,2) NOT NULL,
-  `description` text DEFAULT NULL,
-  `status` enum('active','inactive') DEFAULT 'active',
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ;
-
---
--- Dumping data for table `routes`
---
-
-INSERT INTO `routes` (`id`, `origin`, `destination`, `distance`, `estimated_duration`, `fare`, `description`, `status`, `created_at`, `updated_at`) VALUES
-(10, 'iloilo', 'roxas', 150.00, '2h 30', 274.75, NULL, 'active', '2025-06-09 13:16:20', '2025-06-09 13:16:20');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `schedules`
---
-
-CREATE TABLE `schedules` (
-  `id` int(11) NOT NULL,
-  `bus_id` int(11) NOT NULL,
-  `origin` varchar(255) NOT NULL,
-  `destination` varchar(255) NOT NULL,
-  `departure_time` time NOT NULL,
-  `arrival_time` time NOT NULL,
-  `fare_amount` decimal(10,2) NOT NULL,
-  `recurring` tinyint(1) NOT NULL DEFAULT 0,
-  `trip_number` varchar(20) DEFAULT NULL,
-  `status` varchar(20) NOT NULL DEFAULT 'active',
-  `days_of_week` set('monday','tuesday','wednesday','thursday','friday','saturday','sunday') DEFAULT 'monday,tuesday,wednesday,thursday,friday,saturday,sunday',
-  `effective_date` date DEFAULT NULL,
-  `expiry_date` date DEFAULT NULL,
-  `date` date DEFAULT NULL,
-  `special_notes` text DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `schedules`
---
-
-INSERT INTO `schedules` (`id`, `bus_id`, `origin`, `destination`, `departure_time`, `arrival_time`, `fare_amount`, `recurring`, `trip_number`, `status`, `days_of_week`, `effective_date`, `expiry_date`, `date`, `special_notes`, `created_at`, `updated_at`) VALUES
-(16, 101, 'iloilo', 'roxas', '08:00:00', '10:30:00', 275.00, 1, '1st Trip', 'active', 'monday,tuesday,wednesday,thursday,friday,saturday,sunday', NULL, NULL, NULL, NULL, '2025-06-09 13:16:57', '2025-06-09 13:16:57');
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `system_settings`
---
-
 CREATE TABLE `system_settings` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL AUTO_INCREMENT,
   `setting_key` varchar(100) NOT NULL,
   `setting_value` text DEFAULT NULL,
   `setting_type` enum('string','number','boolean','json','text') DEFAULT 'string',
   `description` text DEFAULT NULL,
   `is_public` tinyint(1) DEFAULT 0,
   `created_at` datetime DEFAULT current_timestamp(),
-  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `setting_key` (`setting_key`)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- --------------------------------------------------------
+-- ============================================================================
+-- TRIGGERS
+-- ============================================================================
 
---
--- Table structure for table `users`
---
+DELIMITER $
 
-CREATE TABLE `users` (
-  `id` int(11) NOT NULL,
-  `first_name` varchar(50) NOT NULL,
-  `last_name` varchar(50) NOT NULL,
-  `gender` enum('male','female','other') NOT NULL,
-  `birthdate` date NOT NULL,
-  `contact_number` varchar(20) NOT NULL,
-  `email` varchar(100) NOT NULL,
-  `password` varchar(255) NOT NULL,
-  `is_verified` tinyint(1) DEFAULT 0,
-  `user_type` enum('customer','admin','staff') DEFAULT 'customer',
-  `profile_image` varchar(255) DEFAULT NULL,
-  `address` text DEFAULT NULL,
-  `emergency_contact` varchar(100) DEFAULT NULL,
-  `emergency_phone` varchar(20) DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `last_login` datetime DEFAULT NULL,
-  `status` enum('active','inactive','suspended') DEFAULT 'active',
-  `full_name` varchar(101) GENERATED ALWAYS AS (concat(`first_name`,' ',`last_name`)) STORED
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TRIGGER `calculate_final_fare_insert` BEFORE INSERT ON `bookings` FOR EACH ROW 
+BEGIN
+    IF NEW.base_fare IS NOT NULL THEN
+        SET NEW.final_fare = NEW.base_fare - COALESCE(NEW.discount_amount, 0);
+    END IF;
+END$
 
---
--- Dumping data for table `users`
---
+CREATE TRIGGER `update_final_fare` BEFORE UPDATE ON `bookings` FOR EACH ROW 
+BEGIN
+    IF NEW.base_fare IS NOT NULL THEN
+        SET NEW.final_fare = NEW.base_fare - COALESCE(NEW.discount_amount, 0);
+    END IF;
+END$
 
-INSERT INTO `users` (`id`, `first_name`, `last_name`, `gender`, `birthdate`, `contact_number`, `email`, `password`, `is_verified`, `user_type`, `profile_image`, `address`, `emergency_contact`, `emergency_phone`, `created_at`, `updated_at`, `last_login`, `status`) VALUES
-(1000, 'larry', 'Biaco', 'male', '2000-06-03', '09123456789', 'larrydenverbiaco@gmail.com', '$2y$10$k2X.BNrWCLmRXuV20ZU72uRTRtkt9WNaUlEw/0x4Sf0aZKNzdNo6i', 1, 'customer', NULL, NULL, NULL, NULL, '2025-06-01 18:54:03', '2025-06-01 18:54:03', NULL, 'active');
+DELIMITER ;
 
--- --------------------------------------------------------
+-- ============================================================================
+-- VIEWS
+-- ============================================================================
 
---
--- Structure for view `booking_details_view`
---
-DROP TABLE IF EXISTS `booking_details_view`;
+-- View for booking details
+CREATE VIEW `booking_details_view` AS 
+SELECT 
+    `b`.`id` AS `id`,
+    `b`.`booking_reference` AS `booking_reference`,
+    `b`.`passenger_name` AS `passenger_name`,
+    `b`.`seat_number` AS `seat_number`,
+    `b`.`booking_date` AS `booking_date`,
+    `b`.`booking_status` AS `booking_status`,
+    `b`.`group_booking_id` AS `group_booking_id`,
+    `b`.`discount_type` AS `discount_type`,
+    `b`.`discount_verified` AS `discount_verified`,
+    `b`.`base_fare` AS `base_fare`,
+    `b`.`discount_amount` AS `discount_amount`,
+    `b`.`final_fare` AS `final_fare`,
+    `b`.`payment_method` AS `payment_method`,
+    `b`.`payment_status` AS `payment_status`,
+    `b`.`boarding_status` AS `boarding_status`,
+    `b`.`created_at` AS `created_at`,
+    `u`.`first_name` AS `booker_first_name`,
+    `u`.`last_name` AS `booker_last_name`,
+    `u`.`email` AS `booker_email`,
+    `u`.`contact_number` AS `booker_phone`,
+    `bus`.`bus_type` AS `bus_type`,
+    `bus`.`plate_number` AS `plate_number`,
+    `bus`.`route_name` AS `route_name`,
+    `bus`.`driver_name` AS `driver_name`,
+    `bus`.`conductor_name` AS `conductor_name`,
+    `s`.`departure_time` AS `departure_time`,
+    `s`.`arrival_time` AS `arrival_time`,
+    `s`.`trip_number` AS `trip_number`,
+    `r`.`fare` AS `route_fare`,
+    `r`.`origin` AS `origin`,
+    `r`.`destination` AS `destination`,
+    `r`.`distance` AS `distance`,
+    `r`.`estimated_duration` AS `estimated_duration`,
+    CASE 
+        WHEN `b`.`discount_type` = 'student' THEN `r`.`fare` * 0.8 
+        WHEN `b`.`discount_type` = 'senior' THEN `r`.`fare` * 0.8 
+        WHEN `b`.`discount_type` = 'pwd' THEN `r`.`fare` * 0.8 
+        ELSE `r`.`fare` 
+    END AS `calculated_fare` 
+FROM 
+    ((((`bookings` `b` 
+    LEFT JOIN `users` `u` ON(`b`.`user_id` = `u`.`id`)) 
+    LEFT JOIN `buses` `bus` ON(`b`.`bus_id` = `bus`.`id`)) 
+    LEFT JOIN `schedules` `s` ON(`b`.`bus_id` = `s`.`bus_id` AND `b`.`trip_number` = `s`.`trip_number`)) 
+    LEFT JOIN `routes` `r` ON(`bus`.`route_name` LIKE CONCAT(`r`.`origin`,' → ',`r`.`destination`)));
 
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `booking_details_view`  AS SELECT `b`.`id` AS `id`, `b`.`booking_reference` AS `booking_reference`, `b`.`passenger_name` AS `passenger_name`, `b`.`seat_number` AS `seat_number`, `b`.`booking_date` AS `booking_date`, `b`.`booking_status` AS `booking_status`, `b`.`group_booking_id` AS `group_booking_id`, `b`.`discount_type` AS `discount_type`, `b`.`discount_verified` AS `discount_verified`, `b`.`base_fare` AS `base_fare`, `b`.`discount_amount` AS `discount_amount`, `b`.`final_fare` AS `final_fare`, `b`.`payment_method` AS `payment_method`, `b`.`payment_status` AS `payment_status`, `b`.`boarding_status` AS `boarding_status`, `b`.`created_at` AS `created_at`, `u`.`first_name` AS `booker_first_name`, `u`.`last_name` AS `booker_last_name`, `u`.`email` AS `booker_email`, `u`.`contact_number` AS `booker_phone`, `bus`.`bus_type` AS `bus_type`, `bus`.`plate_number` AS `plate_number`, `bus`.`route_name` AS `route_name`, `bus`.`driver_name` AS `driver_name`, `bus`.`conductor_name` AS `conductor_name`, `s`.`departure_time` AS `departure_time`, `s`.`arrival_time` AS `arrival_time`, `s`.`trip_number` AS `trip_number`, `r`.`fare` AS `route_fare`, `r`.`origin` AS `origin`, `r`.`destination` AS `destination`, `r`.`distance` AS `distance`, `r`.`estimated_duration` AS `estimated_duration`, CASE WHEN `b`.`discount_type` = 'student' THEN `r`.`fare`* 0.8 WHEN `b`.`discount_type` = 'senior' THEN `r`.`fare`* 0.8 WHEN `b`.`discount_type` = 'pwd' THEN `r`.`fare`* 0.8 ELSE `r`.`fare` END AS `calculated_fare` FROM ((((`bookings` `b` left join `users` `u` on(`b`.`user_id` = `u`.`id`)) left join `buses` `bus` on(`b`.`bus_id` = `bus`.`id`)) left join `schedules` `s` on(`b`.`bus_id` = `s`.`bus_id` and `b`.`trip_number` = `s`.`trip_number`)) left join `routes` `r` on(`bus`.`route_name` like concat(`r`.`origin`,' → ',`r`.`destination`))) ;
+-- View for bus utilization
+CREATE VIEW `bus_utilization_view` AS 
+SELECT 
+    `b`.`id` AS `bus_id`,
+    `b`.`plate_number` AS `plate_number`,
+    `b`.`bus_type` AS `bus_type`,
+    `b`.`seat_capacity` AS `seat_capacity`,
+    `b`.`route_name` AS `route_name`,
+    `b`.`status` AS `status`,
+    CAST(`bk`.`booking_date` AS date) AS `travel_date`,
+    COUNT(`bk`.`id`) AS `total_bookings`,
+    COUNT(CASE WHEN `bk`.`booking_status` = 'confirmed' THEN 1 END) AS `confirmed_bookings`,
+    COUNT(CASE WHEN `bk`.`booking_status` = 'cancelled' THEN 1 END) AS `cancelled_bookings`,
+    ROUND(COUNT(CASE WHEN `bk`.`booking_status` = 'confirmed' THEN 1 END) / `b`.`seat_capacity` * 100, 2) AS `occupancy_rate`,
+    SUM(CASE WHEN `bk`.`booking_status` = 'confirmed' THEN `bk`.`final_fare` ELSE 0 END) AS `total_revenue` 
+FROM 
+    (`buses` `b` 
+    LEFT JOIN `bookings` `bk` ON(`b`.`id` = `bk`.`bus_id`)) 
+GROUP BY 
+    `b`.`id`, CAST(`bk`.`booking_date` AS date) 
+ORDER BY 
+    CAST(`bk`.`booking_date` AS date) DESC, 
+    ROUND(COUNT(CASE WHEN `bk`.`booking_status` = 'confirmed' THEN 1 END) / `b`.`seat_capacity` * 100, 2) DESC;
 
--- --------------------------------------------------------
+-- View for group booking summary
+CREATE VIEW `group_booking_summary` AS 
+SELECT 
+    `b`.`group_booking_id` AS `group_booking_id`,
+    COUNT(`b`.`id`) AS `total_passengers`,
+    SUM(`b`.`base_fare`) AS `total_base_fare`,
+    SUM(`b`.`discount_amount`) AS `total_discount`,
+    SUM(`b`.`final_fare`) AS `total_amount`,
+    GROUP_CONCAT(CONCAT(`b`.`passenger_name`,' (Seat ',`b`.`seat_number`,')') SEPARATOR ', ') AS `passengers_list`,
+    GROUP_CONCAT(DISTINCT `b`.`discount_type` SEPARATOR ',') AS `discount_types`,
+    `b`.`booking_date` AS `booking_date`,
+    `b`.`payment_method` AS `payment_method`,
+    `b`.`payment_status` AS `payment_status`,
+    `b`.`created_at` AS `created_at`,
+    `u`.`first_name` AS `booker_first_name`,
+    `u`.`last_name` AS `booker_last_name`,
+    `u`.`email` AS `booker_email`,
+    `bus`.`plate_number` AS `plate_number`,
+    `bus`.`route_name` AS `route_name`,
+    `s`.`departure_time` AS `departure_time`,
+    `s`.`arrival_time` AS `arrival_time`,
+    `s`.`trip_number` AS `trip_number` 
+FROM 
+    (((`bookings` `b` 
+    LEFT JOIN `users` `u` ON(`b`.`user_id` = `u`.`id`)) 
+    LEFT JOIN `buses` `bus` ON(`b`.`bus_id` = `bus`.`id`)) 
+    LEFT JOIN `schedules` `s` ON(`b`.`bus_id` = `s`.`bus_id` AND `b`.`trip_number` = `s`.`trip_number`)) 
+WHERE 
+    `b`.`group_booking_id` IS NOT NULL 
+GROUP BY 
+    `b`.`group_booking_id` 
+ORDER BY 
+    `b`.`created_at` DESC;
 
---
--- Structure for view `bus_utilization_view`
---
-DROP TABLE IF EXISTS `bus_utilization_view`;
+-- View for revenue summary
+CREATE VIEW `revenue_summary_view` AS 
+SELECT 
+    CAST(`b`.`booking_date` AS date) AS `revenue_date`,
+    COUNT(`b`.`id`) AS `total_bookings`,
+    COUNT(CASE WHEN `b`.`booking_status` = 'confirmed' THEN 1 END) AS `confirmed_bookings`,
+    SUM(CASE WHEN `b`.`booking_status` = 'confirmed' THEN `b`.`final_fare` ELSE 0 END) AS `total_revenue`,
+    SUM(CASE WHEN `b`.`booking_status` = 'confirmed' AND `b`.`discount_type` <> 'regular' THEN `b`.`discount_amount` ELSE 0 END) AS `total_discounts`,
+    SUM(CASE WHEN `b`.`booking_status` = 'confirmed' AND `b`.`payment_method` = 'counter' THEN `b`.`final_fare` ELSE 0 END) AS `counter_revenue`,
+    SUM(CASE WHEN `b`.`booking_status` = 'confirmed' AND `b`.`payment_method` = 'gcash' THEN `b`.`final_fare` ELSE 0 END) AS `gcash_revenue`,
+    SUM(CASE WHEN `b`.`booking_status` = 'confirmed' AND `b`.`payment_method` = 'paymaya' THEN `b`.`final_fare` ELSE 0 END) AS `paymaya_revenue`,
+    AVG(CASE WHEN `b`.`booking_status` = 'confirmed' THEN `b`.`final_fare` END) AS `average_fare` 
+FROM 
+    `bookings` AS `b` 
+WHERE 
+    `b`.`booking_date` >= CURDATE() - INTERVAL 30 DAY 
+GROUP BY 
+    CAST(`b`.`booking_date` AS date) 
+ORDER BY 
+    CAST(`b`.`booking_date` AS date) DESC;
 
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `bus_utilization_view`  AS SELECT `b`.`id` AS `bus_id`, `b`.`plate_number` AS `plate_number`, `b`.`bus_type` AS `bus_type`, `b`.`seat_capacity` AS `seat_capacity`, `b`.`route_name` AS `route_name`, `b`.`status` AS `status`, cast(`bk`.`booking_date` as date) AS `travel_date`, count(`bk`.`id`) AS `total_bookings`, count(case when `bk`.`booking_status` = 'confirmed' then 1 end) AS `confirmed_bookings`, count(case when `bk`.`booking_status` = 'cancelled' then 1 end) AS `cancelled_bookings`, round(count(case when `bk`.`booking_status` = 'confirmed' then 1 end) / `b`.`seat_capacity` * 100,2) AS `occupancy_rate`, sum(case when `bk`.`booking_status` = 'confirmed' then `bk`.`final_fare` else 0 end) AS `total_revenue` FROM (`buses` `b` left join `bookings` `bk` on(`b`.`id` = `bk`.`bus_id`)) GROUP BY `b`.`id`, cast(`bk`.`booking_date` as date) ORDER BY cast(`bk`.`booking_date` as date) DESC, round(count(case when `bk`.`booking_status` = 'confirmed' then 1 end) / `b`.`seat_capacity` * 100,2) DESC ;
+-- View for group booking analytics
+CREATE VIEW `group_booking_analytics` AS 
+SELECT 
+    CAST(`group_booking_summary`.`booking_date` AS date) AS `travel_date`,
+    COUNT(DISTINCT `group_booking_summary`.`group_booking_id`) AS `total_group_bookings`,
+    COUNT(0) AS `total_group_passengers`,
+    AVG(`group_booking_summary`.`total_passengers`) AS `avg_group_size`,
+    MAX(`group_booking_summary`.`total_passengers`) AS `largest_group_size`,
+    SUM(`group_booking_summary`.`total_amount`) AS `total_group_revenue`,
+    SUM(`group_booking_summary`.`total_discount`) AS `total_group_discounts`,
+    `group_booking_summary`.`payment_method` AS `payment_method`,
+    `group_booking_summary`.`payment_status` AS `payment_status`,
+    `group_booking_summary`.`discount_types` AS `discount_type` 
+FROM 
+    `group_booking_summary` 
+GROUP BY 
+    CAST(`group_booking_summary`.`booking_date` AS date), 
+    `group_booking_summary`.`payment_method`, 
+    `group_booking_summary`.`payment_status`, 
+    `group_booking_summary`.`discount_types`;
 
--- --------------------------------------------------------
+-- ============================================================================
+-- SAMPLE DATA INSERTS
+-- ============================================================================
 
---
--- Structure for view `group_booking_analytics`
---
-DROP TABLE IF EXISTS `group_booking_analytics`;
+-- Insert sample user (admin)
+INSERT INTO `users` (`id`, `first_name`, `last_name`, `gender`, `birthdate`, `contact_number`, `email`, `password`, `is_verified`, `user_type`, `created_at`, `updated_at`) VALUES
+(1000, 'larry', 'Biaco', 'male', '2000-06-03', '09123456789', 'larrydenverbiaco@gmail.com', '$2y$10$k2X.BNrWCLmRXuV20ZU72uRTRtkt9WNaUlEw/0x4Sf0aZKNzdNo6i', 1, 'customer', '2025-06-01 18:54:03', '2025-06-01 18:54:03');
 
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `group_booking_analytics`  AS SELECT cast(`group_booking_summary`.`booking_date` as date) AS `travel_date`, count(distinct `group_booking_summary`.`group_booking_id`) AS `total_group_bookings`, count(0) AS `total_group_passengers`, avg(`group_booking_summary`.`total_passengers`) AS `avg_group_size`, max(`group_booking_summary`.`total_passengers`) AS `largest_group_size`, sum(`group_booking_summary`.`total_amount`) AS `total_group_revenue`, sum(`group_booking_summary`.`total_discount`) AS `total_group_discounts`, `group_booking_summary`.`payment_method` AS `payment_method`, `group_booking_summary`.`payment_status` AS `payment_status`, `group_booking_summary`.`discount_type` AS `discount_type` FROM `group_booking_summary` GROUP BY cast(`group_booking_summary`.`booking_date` as date), `group_booking_summary`.`payment_method`, `group_booking_summary`.`payment_status`, `group_booking_summary`.`discount_type` ;
-
--- --------------------------------------------------------
-
---
--- Structure for view `group_booking_summary`
---
-DROP TABLE IF EXISTS `group_booking_summary`;
-
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `group_booking_summary`  AS SELECT `b`.`group_booking_id` AS `group_booking_id`, count(`b`.`id`) AS `total_passengers`, sum(`b`.`base_fare`) AS `total_base_fare`, sum(`b`.`discount_amount`) AS `total_discount`, sum(`b`.`final_fare`) AS `total_amount`, group_concat(concat(`b`.`passenger_name`,' (Seat ',`b`.`seat_number`,')') separator ', ') AS `passengers_list`, group_concat(distinct `b`.`discount_type` separator ',') AS `discount_types`, `b`.`booking_date` AS `booking_date`, `b`.`payment_method` AS `payment_method`, `b`.`payment_status` AS `payment_status`, `b`.`created_at` AS `created_at`, `u`.`first_name` AS `booker_first_name`, `u`.`last_name` AS `booker_last_name`, `u`.`email` AS `booker_email`, `bus`.`plate_number` AS `plate_number`, `bus`.`route_name` AS `route_name`, `s`.`departure_time` AS `departure_time`, `s`.`arrival_time` AS `arrival_time`, `s`.`trip_number` AS `trip_number` FROM (((`bookings` `b` left join `users` `u` on(`b`.`user_id` = `u`.`id`)) left join `buses` `bus` on(`b`.`bus_id` = `bus`.`id`)) left join `schedules` `s` on(`b`.`bus_id` = `s`.`bus_id` and `b`.`trip_number` = `s`.`trip_number`)) WHERE `b`.`group_booking_id` is not null GROUP BY `b`.`group_booking_id` ORDER BY `b`.`created_at` DESC ;
-
--- --------------------------------------------------------
-
---
--- Structure for view `revenue_summary_view`
---
-DROP TABLE IF EXISTS `revenue_summary_view`;
-
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `revenue_summary_view`  AS SELECT cast(`b`.`booking_date` as date) AS `revenue_date`, count(`b`.`id`) AS `total_bookings`, count(case when `b`.`booking_status` = 'confirmed' then 1 end) AS `confirmed_bookings`, sum(case when `b`.`booking_status` = 'confirmed' then `b`.`final_fare` else 0 end) AS `total_revenue`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`discount_type` <> 'regular' then `b`.`discount_amount` else 0 end) AS `total_discounts`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`payment_method` = 'counter' then `b`.`final_fare` else 0 end) AS `counter_revenue`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`payment_method` = 'gcash' then `b`.`final_fare` else 0 end) AS `gcash_revenue`, sum(case when `b`.`booking_status` = 'confirmed' and `b`.`payment_method` = 'paymaya' then `b`.`final_fare` else 0 end) AS `paymaya_revenue`, avg(case when `b`.`booking_status` = 'confirmed' then `b`.`final_fare` end) AS `average_fare` FROM `bookings` AS `b` WHERE `b`.`booking_date` >= curdate() - interval 30 day GROUP BY cast(`b`.`booking_date` as date) ORDER BY cast(`b`.`booking_date` as date) DESC ;
-
---
--- Indexes for dumped tables
---
-
---
--- Indexes for table `audit_logs`
---
-ALTER TABLE `audit_logs`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_audit_user` (`user_id`),
-  ADD KEY `idx_audit_action` (`action`),
-  ADD KEY `idx_audit_table` (`table_name`),
-  ADD KEY `idx_audit_created` (`created_at`);
-
---
--- Indexes for table `bookings`
---
-ALTER TABLE `bookings`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `bus_id` (`bus_id`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `idx_booking_reference` (`booking_reference`),
-  ADD KEY `idx_group_booking` (`group_booking_id`),
-  ADD KEY `idx_discount_type` (`discount_type`),
-  ADD KEY `idx_payment_status` (`payment_status`),
-  ADD KEY `idx_booking_date_status` (`booking_date`,`booking_status`),
-  ADD KEY `idx_passenger_name` (`passenger_name`),
-  ADD KEY `idx_discount_verification` (`discount_type`,`discount_verified`),
-  ADD KEY `idx_payment_verification` (`payment_method`,`payment_status`),
-  ADD KEY `fk_discount_verifier` (`discount_verified_by`),
-  ADD KEY `fk_cancelled_by` (`cancelled_by`),
-  ADD KEY `fk_refund_processor` (`refund_processed_by`),
-  ADD KEY `idx_bookings_bus_id` (`bus_id`),
-  ADD KEY `idx_bookings_user_id` (`user_id`),
-  ADD KEY `idx_group_booking_id` (`group_booking_id`),
-  ADD KEY `idx_bus_date` (`bus_id`,`booking_date`),
-  ADD KEY `idx_booking_status` (`booking_status`),
-  ADD KEY `idx_booking_date` (`booking_date`);
-
---
--- Indexes for table `booking_groups`
---
-ALTER TABLE `booking_groups`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `group_id` (`group_id`),
-  ADD KEY `idx_group_user` (`user_id`,`booking_date`),
-  ADD KEY `idx_group_bus` (`bus_id`,`booking_date`),
-  ADD KEY `idx_group_status` (`group_status`),
-  ADD KEY `idx_payment_status` (`payment_status`),
-  ADD KEY `fk_group_payment_verifier` (`payment_verified_by`),
-  ADD KEY `idx_group_booking_user` (`user_id`,`booking_date`),
-  ADD KEY `idx_group_booking_bus` (`bus_id`,`booking_date`);
-
---
--- Indexes for table `buses`
---
-ALTER TABLE `buses`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `plate_number` (`plate_number`),
-  ADD KEY `status` (`status`),
-  ADD KEY `fk_bus_route` (`route_id`),
-  ADD KEY `idx_bus_type` (`bus_type`),
-  ADD KEY `idx_route_name` (`route_name`),
-  ADD KEY `idx_bus_status_type` (`status`,`bus_type`),
-  ADD KEY `idx_buses_id` (`id`);
-
---
--- Indexes for table `contact_messages`
---
-ALTER TABLE `contact_messages`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_contact_user` (`user_id`),
-  ADD KEY `fk_contact_assigned` (`assigned_to`),
-  ADD KEY `idx_contact_status` (`status`),
-  ADD KEY `idx_contact_priority` (`priority`);
-
---
--- Indexes for table `contact_replies`
---
-ALTER TABLE `contact_replies`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_reply_message` (`message_id`),
-  ADD KEY `fk_reply_user` (`replied_by`);
-
---
--- Indexes for table `discount_verifications`
---
-ALTER TABLE `discount_verifications`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_discount_booking` (`booking_id`),
-  ADD KEY `idx_verification_status` (`verification_status`),
-  ADD KEY `idx_discount_type` (`discount_type`),
-  ADD KEY `fk_discount_verified_by` (`verified_by`);
-
---
--- Indexes for table `payment_verifications`
---
-ALTER TABLE `payment_verifications`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_payment_booking` (`booking_id`),
-  ADD KEY `idx_payment_verification_status` (`verification_status`),
-  ADD KEY `idx_payment_method` (`payment_method`),
-  ADD KEY `idx_group_booking_payment` (`group_booking_id`),
-  ADD KEY `fk_payment_verified_by` (`verified_by`);
-
---
--- Indexes for table `routes`
---
-ALTER TABLE `routes`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `unique_route` (`origin`,`destination`),
-  ADD KEY `idx_route_search` (`origin`,`destination`),
-  ADD KEY `idx_status` (`status`),
-  ADD KEY `idx_route_active` (`status`,`origin`,`destination`);
-
---
--- Indexes for table `schedules`
---
-ALTER TABLE `schedules`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `unique_bus_trip` (`bus_id`,`trip_number`),
-  ADD KEY `origin_destination` (`origin`,`destination`),
-  ADD KEY `idx_trip_number` (`trip_number`),
-  ADD KEY `idx_schedule_status` (`status`),
-  ADD KEY `idx_departure_time` (`departure_time`),
-  ADD KEY `idx_schedule_date` (`date`),
-  ADD KEY `idx_schedule_time` (`departure_time`,`arrival_time`);
-
---
--- Indexes for table `system_settings`
---
-ALTER TABLE `system_settings`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `setting_key` (`setting_key`);
-
---
--- Indexes for table `users`
---
-ALTER TABLE `users`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `email` (`email`),
-  ADD KEY `idx_user_type` (`user_type`),
-  ADD KEY `idx_status` (`status`),
-  ADD KEY `idx_email_status` (`email`,`status`),
-  ADD KEY `idx_users_id` (`id`);
-
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `audit_logs`
---
-ALTER TABLE `audit_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `bookings`
---
-ALTER TABLE `bookings`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `booking_groups`
---
-ALTER TABLE `booking_groups`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `buses`
---
-ALTER TABLE `buses`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `contact_messages`
---
-ALTER TABLE `contact_messages`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `contact_replies`
---
-ALTER TABLE `contact_replies`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `discount_verifications`
---
-ALTER TABLE `discount_verifications`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `payment_verifications`
---
-ALTER TABLE `payment_verifications`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `routes`
---
-ALTER TABLE `routes`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `schedules`
---
-ALTER TABLE `schedules`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
-
---
--- AUTO_INCREMENT for table `system_settings`
---
-ALTER TABLE `system_settings`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
-
---
--- AUTO_INCREMENT for table `users`
---
-ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1001;
-
---
--- Constraints for dumped tables
---
-
---
--- Constraints for table `audit_logs`
---
-ALTER TABLE `audit_logs`
-  ADD CONSTRAINT `fk_audit_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `bookings`
---
-ALTER TABLE `bookings`
-  ADD CONSTRAINT `fk_booking_bus` FOREIGN KEY (`bus_id`) REFERENCES `buses` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_booking_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_cancelled_by` FOREIGN KEY (`cancelled_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_discount_verifier` FOREIGN KEY (`discount_verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_refund_processor` FOREIGN KEY (`refund_processed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `booking_groups`
---
-ALTER TABLE `booking_groups`
-  ADD CONSTRAINT `fk_group_bus` FOREIGN KEY (`bus_id`) REFERENCES `buses` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_group_payment_verifier` FOREIGN KEY (`payment_verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_group_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `buses`
---
-ALTER TABLE `buses`
-  ADD CONSTRAINT `fk_bus_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `contact_messages`
---
-ALTER TABLE `contact_messages`
-  ADD CONSTRAINT `fk_contact_assigned` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_contact_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `contact_replies`
---
-ALTER TABLE `contact_replies`
-  ADD CONSTRAINT `fk_reply_message` FOREIGN KEY (`message_id`) REFERENCES `contact_messages` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_reply_user` FOREIGN KEY (`replied_by`) REFERENCES `users` (`id`) ON DELETE CASCADE;
-
---
--- Constraints for table `discount_verifications`
---
-ALTER TABLE `discount_verifications`
-  ADD CONSTRAINT `fk_discount_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_discount_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `payment_verifications`
---
-ALTER TABLE `payment_verifications`
-  ADD CONSTRAINT `fk_payment_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_payment_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `schedules`
---
-ALTER TABLE `schedules`
-  ADD CONSTRAINT `fk_schedule_bus` FOREIGN KEY (`bus_id`) REFERENCES `buses` (`id`) ON DELETE CASCADE;
+-- Commit the transaction
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
