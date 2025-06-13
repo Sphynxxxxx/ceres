@@ -196,6 +196,43 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             content: " *";
             color: red;
         }
+        
+        /* Password toggle styles */
+        .password-field {
+            position: relative;
+        }
+        
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #6c757d;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+        
+        .password-toggle:hover {
+            color: var(--primary);
+        }
+        
+        .password-toggle:focus {
+            outline: none;
+            color: var(--primary);
+        }
+        
+        /* Adjust padding for password input to make room for toggle button */
+        .password-field .form-control {
+            padding-right: 45px;
+        }
     </style>
 </head>
 <body>
@@ -222,7 +259,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             
                             <div class="mb-3">
                                 <label for="password" class="form-label required-field">Password</label>
-                                <input type="password" class="form-control" id="password" name="password" required>
+                                <div class="password-field">
+                                    <input type="password" class="form-control" id="password" name="password" required>
+                                    <button type="button" class="password-toggle" onclick="togglePassword()" aria-label="Toggle password visibility">
+                                        <i class="fas fa-eye" id="toggleIcon"></i>
+                                    </button>
+                                </div>
                             </div>
                             
                             <div class="mb-3 form-check">
@@ -250,9 +292,38 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </div>
     </div>
 
-
-
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function togglePassword() {
+            const passwordField = document.getElementById('password');
+            const toggleIcon = document.getElementById('toggleIcon');
+            
+            if (passwordField.type === 'password') {
+                passwordField.type = 'text';
+                toggleIcon.classList.remove('fa-eye');
+                toggleIcon.classList.add('fa-eye-slash');
+            } else {
+                passwordField.type = 'password';
+                toggleIcon.classList.remove('fa-eye-slash');
+                toggleIcon.classList.add('fa-eye');
+            }
+        }
+        
+        // Optional: Hide password when form loses focus for security
+        document.addEventListener('click', function(event) {
+            const passwordField = document.getElementById('password');
+            const toggleButton = document.querySelector('.password-toggle');
+            const toggleIcon = document.getElementById('toggleIcon');
+            
+            if (!passwordField.contains(event.target) && !toggleButton.contains(event.target)) {
+                if (passwordField.type === 'text') {
+                    passwordField.type = 'password';
+                    toggleIcon.classList.remove('fa-eye-slash');
+                    toggleIcon.classList.add('fa-eye');
+                }
+            }
+        });
+    </script>
 </body>
 </html>
