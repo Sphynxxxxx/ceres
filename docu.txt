@@ -15,3 +15,13 @@ composer require phpmailer/phpmailer
 --NEED TO ADD--
 
  
+ -- Step 1: Drop the existing foreign key constraint
+ALTER TABLE contact_replies DROP FOREIGN KEY fk_reply_user;
+
+-- Step 2: Modify the replied_by column to allow NULL values
+ALTER TABLE contact_replies MODIFY replied_by INT(11) NULL;
+
+-- Step 3: Add the foreign key constraint back with NULL handling
+-- This allows NULL values while still maintaining referential integrity for non-NULL values
+ALTER TABLE contact_replies ADD CONSTRAINT fk_reply_user 
+    FOREIGN KEY (replied_by) REFERENCES users(id) ON DELETE SET NULL;

@@ -6,8 +6,8 @@ if (session_status() == PHP_SESSION_NONE) {
 // Database connection
 require_once "../../backend/connections/config.php";
 
-// For now, setting admin info directly (replace with actual authentication later)
-$admin_id = -1;
+// System administrator configuration - no account needed
+$admin_id = null; // NULL indicates system/admin reply (no user account required)
 $admin_name = "Administrator";
 
 // Handle reply submission
@@ -22,10 +22,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_reply'])) {
     $update_stmt->execute();
     $update_stmt->close();
     
-    // In a real application, you would send an email here
-    // For now, we'll store the reply in a replies table
-    $reply_stmt = $conn->prepare("INSERT INTO contact_replies (message_id, reply_message, replied_by, replied_at) VALUES (?, ?, ?, NOW())");
-    $reply_stmt->bind_param("iss", $message_id, $reply_message, $admin_name);
+    // Insert reply with NULL for system/admin replies (no user account needed)
+    $reply_stmt = $conn->prepare("INSERT INTO contact_replies (message_id, reply_message, replied_by, replied_by_name, replied_at) VALUES (?, ?, ?, ?, NOW())");
+    
+    // When replied_by is NULL, we need to handle it properly in bind_param
+    if ($admin_id === null) {
+        $reply_stmt->bind_param("isss", $message_id, $reply_message, $admin_id, $admin_name);
+    } else {
+        $reply_stmt->bind_param("isis", $message_id, $reply_message, $admin_id, $admin_name);
+    }
     
     if ($reply_stmt->execute()) {
         $success_message = "Reply sent successfully to " . $reply_to_email;
