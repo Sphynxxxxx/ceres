@@ -115,6 +115,7 @@
     <footer>
         <div class="container">
             <p>&copy; 2025 Ceres Bus - ISAT-U Commuters Ticket System. All rights reserved.</p>
+            <p> Developed by: Larry Denver Biaco</p>
         </div>
     </footer>
 
